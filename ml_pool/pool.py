@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 from multiprocessing import Queue, Manager
 import threading
 import time
@@ -98,23 +98,21 @@ class MLPool:
             else:
                 time.sleep(0.05)
 
-    def shutdown(self, exception: Optional[Exception] = None) -> None:
+    def shutdown(self) -> None:
         self._monitor_thread_stop_event.set()
         self._monitor_thread.join()
         logger.debug("Workers monitoring thread stopped")
 
         for worker in self._workers:
             worker.terminate()
+        self._manager.shutdown()
+
         for worker in self._workers:
             worker.join()
         logger.debug("Workers stopped")
 
-        self._manager.shutdown()
         self._manager.join()
         logger.debug("Manager process stopped")
-
-        if exception:
-            raise exception
 
     def _monitor_workers(
         self, stop_event: threading.Event, sleep_time: float = 1.0
