@@ -1,9 +1,10 @@
 import functools
 import typing as t
 import time
+import uuid
 
 
-__all__ = ["timer"]
+__all__ = ["timer", "get_new_job_id"]
 
 
 def timer(func: t.Callable) -> t.Callable:
@@ -18,3 +19,7 @@ def timer(func: t.Callable) -> t.Callable:
         return result
 
     return wrapper
+
+
+def get_new_job_id() -> uuid.UUID:
+    return uuid.uuid4()

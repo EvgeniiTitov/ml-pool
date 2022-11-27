@@ -2,6 +2,8 @@ from typing import Any, Optional
 from multiprocessing import Queue, Manager
 import threading
 import time
+from queue import Full
+import uuid
 
 from ml_pool.logger import get_logger
 from ml_pool.custom_types import (
@@ -13,6 +15,7 @@ from ml_pool.config import Config
 from ml_pool.worker import MLWorker
 from ml_pool.messages import JobMessage
 from ml_pool.exceptions import UserProvidedCallableFailedError
+from ml_pool.utils import get_new_job_id
 
 
 # TODO: How to communicate exception (user fucked up) to the main thread?
@@ -66,10 +69,32 @@ class MLPool:
             workers.append(worker)
         return workers
 
-    def score_model(self, *args, **kwargs) -> Any:
-        # TODO: Model scoring
-        # TODO: Proper example using a model
-        pass
+    def schedule_model_scoring(self, *args, **kwargs) -> uuid.UUID:
+        # TODO: Break the loop at some point?
+
+        job_id = get_new_job_id()
+        job_message = JobMessage(message_id=job_id, args=args, kwargs=kwargs)
+        warning_shown = False
+        while True:
+            try:
+                self._message_queue.put(job_message, timeout=1.0)
+            except Full:
+                if not warning_shown:
+                    logger.warning("Message (job) queue is full")
+                    warning_shown = True
+            else:
+                break
+        logger.debug(f"New job scheduled, its id {job_id}")
+        return job_id
+
+    def get_scoring_result(self, job_id: uuid.UUID) -> Any:
+        # TODO: Time out option?
+
+        while True:
+            if job_id in self._result_dict:
+                return self._result_dict[job_id]
+            else:
+                time.sleep(0.05)
 
     def shutdown(self, exception: Optional[Exception] = None) -> None:
         self._monitor_thread_stop_event.set()
