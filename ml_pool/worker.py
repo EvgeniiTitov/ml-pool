@@ -56,15 +56,20 @@ class MLWorker(Process):
     def run(self) -> None:
         logger.debug(f"MLWorker started")
 
-        # Load the model object
+        # Load the model object provided by the user
         try:
             model: MLModel = self._load_model_func()
         except Exception as e:
             logger.error(
-                f"MLWorker failed while loading the model. Error: {e}"
+                f"User provided load model callable failed. Error: {e}"
             )
             sys.exit(Config.USER_CODE_FAILED_EXIT_CODE)
-        logger.debug(f"MLWorker loaded the model")
+
+        if not model:
+            logger.error("User provided load model callable returned None")
+            sys.exit(Config.USER_CODE_FAILED_EXIT_CODE)
+
+        logger.info(f"MLWorker loaded the model {model.__class__.__name__}")
 
         # Start processing messages using the loaded model and the scoring
         # function provided
@@ -79,11 +84,14 @@ class MLWorker(Process):
                 )  # type: ignore
             except Exception as e:
                 logger.error(
-                    f"MLWorker failed while scoring "
+                    f"User provided score model callable failed for "
                     f"model {model.__class__.__name__} with args {args}, "
                     f"kwargs {kwargs}. Error: {e}"
                 )
                 sys.exit(Config.USER_CODE_FAILED_EXIT_CODE)
 
-            logger.debug(f"MLWorker successfully scored model")
+            logger.debug(
+                f"MLWorker successfully scored model for id: {id_}, "
+                f"result: {result}"
+            )
             self._result_dict[id_] = result

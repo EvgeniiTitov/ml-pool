@@ -42,7 +42,6 @@ class MLPool:
         self._message_queue: "Queue[JobMessage]" = Queue(message_queue_size)
         self._manager = Manager()
         self._result_dict: ResultDict = self._manager.dict()
-
         self._workers: list[MLWorker] = self._start_workers(nb_workers)
 
         self._monitor_thread_stop_event = threading.Event()
@@ -70,18 +69,19 @@ class MLPool:
         return workers
 
     def schedule_model_scoring(self, *args, **kwargs) -> uuid.UUID:
-        # TODO: Break the loop at some point?
+        # TODO: Break the loop at some point? This blocks the process!
 
         job_id = get_new_job_id()
         job_message = JobMessage(message_id=job_id, args=args, kwargs=kwargs)
         warning_shown = False
         while True:
             try:
-                self._message_queue.put(job_message, timeout=1.0)
+                self._message_queue.put_nowait(job_message)
             except Full:
                 if not warning_shown:
                     logger.warning("Message (job) queue is full")
                     warning_shown = True
+                time.sleep(0.1)
             else:
                 break
         logger.debug(f"New job scheduled, its id {job_id}")
@@ -92,20 +92,26 @@ class MLPool:
 
         while True:
             if job_id in self._result_dict:
-                return self._result_dict[job_id]
+                result = self._result_dict[job_id]
+                del self._result_dict[job_id]
+                return result
             else:
                 time.sleep(0.05)
 
     def shutdown(self, exception: Optional[Exception] = None) -> None:
         self._monitor_thread_stop_event.set()
         self._monitor_thread.join()
-        logger.debug("Workers monitoring thread joined")
+        logger.debug("Workers monitoring thread stopped")
 
         for worker in self._workers:
             worker.terminate()
         for worker in self._workers:
             worker.join()
-        logger.debug("Worker joined")
+        logger.debug("Workers stopped")
+
+        self._manager.shutdown()
+        self._manager.join()
+        logger.debug("Manager process stopped")
 
         if exception:
             raise exception
