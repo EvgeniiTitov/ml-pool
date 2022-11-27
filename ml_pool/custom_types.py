@@ -1,25 +1,20 @@
-from typing import Any, Callable, Sequence, Dict
-import abc
+from typing import Any, Callable, Sequence, Dict, Optional
+import uuid
 
 
 __all__ = [
     "LoadModelCallable",
     "ScoreModelCallable",
-    "BaseMLModel",
     "OptionalArgs",
-    "OptionalKwargs"
+    "OptionalKwargs",
+    "ResultDict",
+    "MLModel",
 ]
 
 
-class BaseMLModel(abc.ABC):
-    """Represents any ML model that will be loaded and run by the pool"""
-
-    @abc.abstractmethod
-    def score(self, *args, **kwargs) -> Any:
-        ...
-
-
-LoadModelCallable = Callable[[], BaseMLModel]
-ScoreModelCallable = Callable[[BaseMLModel, Any], Any]
-OptionalArgs = Sequence[Any]
-OptionalKwargs = Dict[str, Any]
+MLModel = object
+LoadModelCallable = Callable[[], MLModel]
+ScoreModelCallable = Callable[[MLModel, Any], Any]
+OptionalArgs = Optional[Sequence[Any]]
+OptionalKwargs = Optional[Dict[str, Any]]
+ResultDict = Dict[uuid.UUID, Any]

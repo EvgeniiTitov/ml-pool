@@ -13,7 +13,8 @@ def timer(func: t.Callable) -> t.Callable:
         result = func(*args, **kwargs)
         print(
             f"Function {func.__name__} took "
-            f"{time.perf_counter() - start: .3f} seconds")
+            f"{time.perf_counter() - start: .3f} seconds"
+        )
         return result
 
     return wrapper

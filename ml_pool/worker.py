@@ -6,7 +6,8 @@ from ml_pool.logger import get_logger
 from ml_pool.custom_types import (
     LoadModelCallable,
     ScoreModelCallable,
-    BaseMLModel
+    MLModel,
+    ResultDict,
 )
 from ml_pool.messages import JobMessage
 from ml_pool.config import Config
@@ -34,16 +35,18 @@ class MLWorker(Process):
     If the user provided code fails, the process return a specific status code,
     signalling the pool to raise an exception
     """
+
     def __init__(
         self,
         result_dict: Dict,
         message_queue: Queue,
         load_model_func: LoadModelCallable,
         score_model_func: ScoreModelCallable,
-        *args, **kwargs
+        *args,
+        **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
-        self._result_dict = result_dict
+        self._result_dict: ResultDict = result_dict
         self._message_queue: Queue["JobMessage"] = message_queue
         self._load_model_func = load_model_func
         self._score_model_func = score_model_func
@@ -55,7 +58,7 @@ class MLWorker(Process):
 
         # Load the model object
         try:
-            model: BaseMLModel = self._load_model_func()
+            model: MLModel = self._load_model_func()
         except Exception as e:
             logger.error(
                 f"MLWorker failed while loading the model. Error: {e}"
@@ -71,11 +74,14 @@ class MLWorker(Process):
             args = message.args or []
             kwargs = message.kwargs or {}
             try:
-                result = self._score_model_func(model, *args, **kwargs)
+                result = self._score_model_func(
+                    model, *args, **kwargs
+                )  # type: ignore
             except Exception as e:
                 logger.error(
-                    f"MLWorker failed while scoring model {model.__name__} "
-                    f"with args {args}, kwargs {kwargs}. Error: {e}"
+                    f"MLWorker failed while scoring "
+                    f"model {model.__class__.__name__} with args {args}, "
+                    f"kwargs {kwargs}. Error: {e}"
                 )
                 sys.exit(Config.USER_CODE_FAILED_EXIT_CODE)
 
