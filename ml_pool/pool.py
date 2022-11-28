@@ -19,6 +19,9 @@ from ml_pool.utils import get_new_job_id
 
 
 # TODO: How to communicate exception (user fucked up) to the main thread?
+#       Add a flag, that the thread sets alongside the exception. Then before
+#       enqueueing a new task/getting results, check if the flag is set (pool
+#       closed)
 
 
 __all__ = ["MLPool"]
@@ -35,15 +38,25 @@ class MLPool:
         nb_workers: int = Config.WORKERS_COUNT,
         message_queue_size: int = Config.MESSAGE_QUEUE_SIZE,
     ) -> None:
-        self._nb_workers = nb_workers
+        self._nb_workers = max(1, nb_workers)
+
+        if not callable(load_model_func):
+            raise UserProvidedCallableFailedError(
+                "load_model_func must be callable returning a ML model"
+            )
         self._load_model_func = load_model_func
+
+        if not callable(score_model_func):
+            raise UserProvidedCallableFailedError(
+                "score_model_func must be a callable with signature:"
+                "(model, *args, **kwargs) -> Any"
+            )
         self._score_model_func = score_model_func
 
         self._message_queue: "Queue[JobMessage]" = Queue(message_queue_size)
         self._manager = Manager()
         self._result_dict: ResultDict = self._manager.dict()
         self._workers: list[MLWorker] = self._start_workers(nb_workers)
-
         self._monitor_thread_stop_event = threading.Event()
         self._monitor_thread = threading.Thread(
             target=self._monitor_workers,
@@ -53,7 +66,7 @@ class MLPool:
             ),
         )
         self._monitor_thread.start()
-        logger.info("MLPool initialised")
+        logger.info(f"MLPool initialised. {nb_workers} span up")
 
     def _start_workers(self, nb_workers: int) -> list[MLWorker]:
         workers = []
@@ -105,14 +118,14 @@ class MLPool:
 
         for worker in self._workers:
             worker.terminate()
-        self._manager.shutdown()
-
         for worker in self._workers:
             worker.join()
         logger.debug("Workers stopped")
 
+        self._manager.shutdown()
         self._manager.join()
         logger.debug("Manager process stopped")
+        logger.info("MLPool shutdown gracefully")
 
     def _monitor_workers(
         self, stop_event: threading.Event, sleep_time: float = 1.0
