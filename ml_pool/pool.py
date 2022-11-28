@@ -23,6 +23,9 @@ from ml_pool.utils import get_new_job_id
 #       enqueueing a new task/getting results, check if the flag is set (pool
 #       closed)
 
+# TODO: Can a worker process just hang? Should I kill it manually every now
+#       and then?
+
 
 __all__ = ["MLPool"]
 
@@ -31,6 +34,19 @@ logger = get_logger("ml_pool")
 
 
 class MLPool:
+    """
+    Manages a pool of MLWorkers running in dedicated processes that execute
+    user provided code:
+        - load_model_func - a callable that loads an ML model in the worker
+          process.
+        - score_model_func - a callable that takes as an input the loaded model
+          plus any other parameters (*args, **kwargs) and returns the scoring
+          result
+
+    The pool does not depend on the implementation of the user provided code,
+    it can accept anything as long as the callables signatures are adequate
+    """
+
     def __init__(
         self,
         load_model_func: LoadModelCallable,
@@ -53,7 +69,9 @@ class MLPool:
             )
         self._score_model_func = score_model_func
 
-        self._message_queue: "Queue[JobMessage]" = Queue(message_queue_size)
+        self._message_queue: "Queue[JobMessage]" = Queue(
+            maxsize=max(10, message_queue_size)
+        )
         self._manager = Manager()
         self._result_dict: ResultDict = self._manager.dict()
         self._workers: list[MLWorker] = self._start_workers(nb_workers)
