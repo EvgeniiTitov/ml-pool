@@ -1,6 +1,6 @@
 from multiprocessing import Process, Queue
-from typing import Dict
 import sys
+import os
 
 from ml_pool.logger import get_logger
 from ml_pool.custom_types import (
@@ -21,7 +21,7 @@ logger = get_logger("ml_worker")
 
 class MLWorker(Process):
     """
-    MLWorker runs in a dedicated process, it loads an ML model using the
+    MLWorker runs in a dedicated process, it loads a ML model using the
     passed load_model_func callable.
 
     MLWorker gets messages (tasks) from the message queue. For each task the
@@ -30,15 +30,16 @@ class MLWorker(Process):
 
     Each message has a unique id. Upon successful model scoring, the result
     is saved to the shared dictionary (multiprocessing.Manager.dict) using
-    the unique id as a key and result as a value.
+    the unique id as a key and the result as a value.
 
-    If the user provided code fails, the process return a specific status code,
-    signalling the pool to raise an exception
+    If the user provided code fails (either model loading or scoring), the
+    process returns a specific status code, signalling the pool to raise
+    an exception
     """
 
     def __init__(
         self,
-        result_dict: Dict,
+        result_dict: ResultDict,
         message_queue: Queue,
         load_model_func: LoadModelCallable,
         score_model_func: ScoreModelCallable,
@@ -50,13 +51,12 @@ class MLWorker(Process):
         self._message_queue: Queue["JobMessage"] = message_queue
         self._load_model_func = load_model_func
         self._score_model_func = score_model_func
-        self.running = False
-        logger.info(f"MLWorker initialised")
+        logger.info(f"MLWorker initialised, pid {os.getpid()}")
 
     def run(self) -> None:
         logger.debug(f"MLWorker started")
 
-        # Load the model object provided by the user
+        # Load the model object using the user provided callable
         try:
             model: MLModel = self._load_model_func()
         except Exception as e:
@@ -66,16 +66,18 @@ class MLWorker(Process):
             sys.exit(Config.USER_CODE_FAILED_EXIT_CODE)
 
         if not model:
-            logger.error("User provided load model callable returned None")
+            logger.error(
+                "User provided load model callable hasn't returned anything"
+            )
             sys.exit(Config.USER_CODE_FAILED_EXIT_CODE)
 
         logger.info(f"MLWorker loaded the model {model.__class__.__name__}")
 
         # Start processing messages using the loaded model and the scoring
-        # function provided
+        # function provided by the user
         while True:
             message: JobMessage = self._message_queue.get()
-            id_ = message.message_id
+            job_id = message.message_id
             args = message.args or []
             kwargs = message.kwargs or {}
             try:
@@ -91,7 +93,7 @@ class MLWorker(Process):
                 sys.exit(Config.USER_CODE_FAILED_EXIT_CODE)
 
             logger.debug(
-                f"MLWorker successfully scored model for id: {id_}, "
+                f"MLWorker successfully scored model for id: {job_id}, "
                 f"result: {result}"
             )
-            self._result_dict[id_] = result
+            self._result_dict[job_id] = result

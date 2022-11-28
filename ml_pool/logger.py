@@ -21,9 +21,7 @@ def get_logger(name: t.Optional[str] = None) -> logging.Logger:
 
     logger = logging.getLogger(name)
     logger.propagate = False
-    logger.setLevel(
-        logging.DEBUG if Config.LOGGER_VERBOSE else logging.WARNING
-    )
+    logger.setLevel(logging.DEBUG if Config.LOGGER_VERBOSE else logging.INFO)
     formatter = logging.Formatter(Config.LOGGER_FORMAT)
     logger.addHandler(_get_console_handler())
     return logger
