@@ -51,10 +51,9 @@ class MLWorker(Process):
         self._message_queue: Queue["JobMessage"] = message_queue
         self._load_model_func = load_model_func
         self._score_model_func = score_model_func
-        logger.info(f"MLWorker initialised, pid {os.getpid()}")
 
     def run(self) -> None:
-        logger.debug(f"MLWorker started")
+        logger.info(f"MLWorker started, pid {os.getpid()}")
 
         # Load the model object using the user provided callable
         try:
@@ -71,7 +70,7 @@ class MLWorker(Process):
             )
             sys.exit(Config.USER_CODE_FAILED_EXIT_CODE)
 
-        logger.info(f"MLWorker loaded the model {model.__class__.__name__}")
+        logger.info(f"MLWorker loaded the model: {model.__class__.__name__}")
 
         # Start processing messages using the loaded model and the scoring
         # function provided by the user

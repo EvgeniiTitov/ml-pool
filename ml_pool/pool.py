@@ -70,7 +70,7 @@ class MLPool:
         self._score_model_func = score_model_func
 
         self._message_queue: "Queue[JobMessage]" = Queue(
-            maxsize=max(10, message_queue_size)
+            maxsize=max(50, message_queue_size)
         )
         self._manager = Manager()
         self._result_dict: ResultDict = self._manager.dict()
@@ -84,7 +84,67 @@ class MLPool:
             ),
         )
         self._monitor_thread.start()
-        logger.info(f"MLPool initialised. {nb_workers} span up")
+        self._workers_healthy = True
+        self._workers_exception = None
+        self._pool_running = True
+        logger.info(f"MLPool initialised. {nb_workers} workers spun up")
+
+    def schedule_model_scoring(self, *args, **kwargs) -> uuid.UUID:
+        """
+        Use this method to create a model scoring job that will run on a worker
+        using the model loaded by calling the load_model_func and passing the
+        loaded model + the args and kwargs passed to this method to the
+        score_model_func callable.
+
+        The method returns whatever your score_model_func returns.
+        """
+        # TODO: This blocks the caller until the message gets enqueued. Bad?
+
+        if not self._workers_healthy:
+            logger.error("Cannot schedule scoring. Workers raised exception")
+            self.shutdown()
+            raise self._workers_exception  # type: ignore
+
+        job_id = get_new_job_id()
+        job_message = JobMessage(message_id=job_id, args=args, kwargs=kwargs)
+        warning_shown = False
+        while True:
+            try:
+                self._message_queue.put_nowait(job_message)
+            except Full:
+                if not warning_shown:
+                    logger.warning(
+                        "Message (job) queue is full, cannot enqueue new "
+                        "scoring job. Increase the queue size or slow down"
+                    )
+                    warning_shown = True
+                time.sleep(0.01)  # 10 ms
+            else:
+                break
+        logger.debug(f"New job scheduled, its id {job_id}")
+        return job_id
+
+    def get_scoring_result(
+        self, job_id: uuid.UUID, wait_if_not_available: bool
+    ) -> Any:
+        if job_id in self._result_dict:
+            return self._retrieve_job_result(job_id)
+
+        if not wait_if_not_available:
+            return
+
+        # If workers failed, we won't be able to retrieve the result
+        if not self._workers_healthy:
+            logger.error(
+                "Cannot get scoring results. Workers raised exception"
+            )
+            self.shutdown()
+            raise self._workers_exception  # type: ignore
+
+        while True:
+            time.sleep(0.01)
+            if job_id in self._result_dict:
+                return self._retrieve_job_result(job_id)
 
     def _start_workers(self, nb_workers: int) -> list[MLWorker]:
         workers = []
@@ -99,51 +159,10 @@ class MLPool:
             workers.append(worker)
         return workers
 
-    def schedule_model_scoring(self, *args, **kwargs) -> uuid.UUID:
-        # TODO: Break the loop at some point? This blocks the process!
-
-        job_id = get_new_job_id()
-        job_message = JobMessage(message_id=job_id, args=args, kwargs=kwargs)
-        warning_shown = False
-        while True:
-            try:
-                self._message_queue.put_nowait(job_message)
-            except Full:
-                if not warning_shown:
-                    logger.warning("Message (job) queue is full")
-                    warning_shown = True
-                time.sleep(0.1)
-            else:
-                break
-        logger.debug(f"New job scheduled, its id {job_id}")
-        return job_id
-
-    def get_scoring_result(self, job_id: uuid.UUID) -> Any:
-        # TODO: Time out option?
-
-        while True:
-            if job_id in self._result_dict:
-                result = self._result_dict[job_id]
-                del self._result_dict[job_id]
-                return result
-            else:
-                time.sleep(0.05)
-
-    def shutdown(self) -> None:
-        self._monitor_thread_stop_event.set()
-        self._monitor_thread.join()
-        logger.debug("Workers monitoring thread stopped")
-
-        for worker in self._workers:
-            worker.terminate()
-        for worker in self._workers:
-            worker.join()
-        logger.debug("Workers stopped")
-
-        self._manager.shutdown()
-        self._manager.join()
-        logger.debug("Manager process stopped")
-        logger.info("MLPool shutdown gracefully")
+    def _retrieve_job_result(self, job_id: uuid.UUID) -> Any:
+        result = self._result_dict[job_id]
+        del self._result_dict[job_id]
+        return result
 
     def _monitor_workers(
         self, stop_event: threading.Event, sleep_time: float = 1.0
@@ -161,9 +180,12 @@ class MLPool:
                     not worker.is_alive()
                     and worker.exitcode == Config.USER_CODE_FAILED_EXIT_CODE
                 ):
-                    raise UserProvidedCallableFailedError(
+                    self._workers_healthy = False
+                    exception = UserProvidedCallableFailedError(
                         "User provided callable threw exception in worker"
                     )
+                    self._workers_exception = exception  # type: ignore
+                    raise exception
 
             total_healthy = len(healthy_workers)
             if total_healthy < self._nb_workers:
@@ -174,3 +196,24 @@ class MLPool:
 
             self._workers = healthy_workers
         logger.debug("Workers monitoring thread stopped")
+
+    def shutdown(self) -> None:
+        if not self._pool_running:
+            return
+
+        self._monitor_thread_stop_event.set()
+        self._monitor_thread.join()
+        logger.debug("Workers monitoring thread stopped")
+
+        for worker in self._workers:
+            worker.terminate()
+        for worker in self._workers:
+            worker.join()
+        logger.debug("Workers stopped")
+
+        self._manager.shutdown()
+        self._manager.join()
+        logger.debug("Manager process stopped")
+
+        self._pool_running = False
+        logger.info("MLPool shutdown gracefully")
