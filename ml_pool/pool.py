@@ -117,7 +117,7 @@ class MLPool:
                 time.sleep(0.01)  # 10 ms
             else:
                 break
-        logger.debug(f"New job scheduled, its id {job_id}")
+        logger.info(f"Scoring job scheduled, id {job_id}")
         return job_id
 
     def get_scoring_result(

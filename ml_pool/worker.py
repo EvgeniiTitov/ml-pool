@@ -57,7 +57,7 @@ class MLWorker(Process):
 
         # Load the model object using the user provided callable
         try:
-            model: MLModel = self._load_model_func()
+            model: MLModel = self._load_model_func()  # type: ignore
         except Exception as e:
             logger.error(
                 f"User provided load model callable failed. Error: {e}"
