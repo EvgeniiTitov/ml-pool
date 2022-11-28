@@ -23,8 +23,6 @@ def load_model():
 
 
 def score_model(model, features):
-    # if random.random() > 0.95:
-    #     raise Exception("KEKL")
     return model.predict(features)
 
 
@@ -35,7 +33,7 @@ def call_pool(index: int) -> None:
     print(f"Called index {index} started")
     results = []
     for i in range(5):
-        time.sleep(random.randint(1, 4))
+        time.sleep(random.random())
         job_id = pool.schedule_model_scoring(f"{index}-{i}")
         result = pool.get_scoring_result(job_id, wait_if_not_available=True)
         results.append(result)

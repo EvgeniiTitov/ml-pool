@@ -18,11 +18,6 @@ from ml_pool.exceptions import UserProvidedCallableFailedError
 from ml_pool.utils import get_new_job_id
 
 
-# TODO: How to communicate exception (user fucked up) to the main thread?
-#       Add a flag, that the thread sets alongside the exception. Then before
-#       enqueueing a new task/getting results, check if the flag is set (pool
-#       closed)
-
 # TODO: Can a worker process just hang? Should I kill it manually every now
 #       and then?
 
@@ -87,6 +82,7 @@ class MLPool:
         self._workers_healthy = True
         self._workers_exception = None
         self._pool_running = True
+        time.sleep(1.0)  # Time to spin up workers, load the models etc
         logger.info(f"MLPool initialised. {nb_workers} workers spun up")
 
     def schedule_model_scoring(self, *args, **kwargs) -> uuid.UUID:
@@ -189,7 +185,9 @@ class MLPool:
 
             total_healthy = len(healthy_workers)
             if total_healthy < self._nb_workers:
-                logger.debug("Fewer workers than required, adding")
+                logger.info(
+                    "Fewer workers than required, adding new to the pool"
+                )
                 healthy_workers.extend(
                     self._start_workers(self._nb_workers - total_healthy)
                 )
