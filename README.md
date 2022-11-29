@@ -1,6 +1,9 @@
+`Disclamer: THIS IS A NICHE USE CASE AND IS NOT A PROPER WAY TO SOLVE SUCH A PROBLEM`
+
+---
+
 ### Use case / why
 
-_Disclamer: THIS IS A NICHE USE CASE AND IS NOT A PROPER WAY TACKLE THE ISSUE_
 
 Cloud Run as of November 2022 does not support GPU machines. Assuming we have a model, 
 which is CPU hungry and takes time to score, which we want to serve through an API while:
@@ -50,7 +53,7 @@ within the same container won't help as the bottleneck is CPU hungry model scori
 
 User is to provide two callables:
 
-1. A callable that loads a model and returns it (ran by each worker in the pool to load model once for inference):
+1. A callable that loads a model and returns it (ran _once_ by each worker in the pool to load model for inference):
 
 ```python
 def load_model(model_path: str):
