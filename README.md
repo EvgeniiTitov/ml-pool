@@ -1,10 +1,7 @@
 ### TODO:
 
 - Test if a worker just fails (raise manually) - hangs the receiving thread
-- Pool needs to be manually closed (can automate with atexit?)
 - Test with proper model (YOLO or something) - fix loading Torch model
-- More thorough testing from multiple threaded callers + API test
-
 
 ---
 
@@ -85,13 +82,12 @@ def main():
 
 
 if __name__ == '__main__':
-    pool = MLPool(
+    with MLPool(
         load_model_func=partial(load_model, "iris_xgb.json"),
         score_model_func=score_model,
-        nb_workers=10
-    )
-    main()
-    pool.shutdown()
+        nb_workers=4
+    ) as pool:
+        main()
 ```
 Under the hood, MLPool calls the score_model_func with the model object it gets from the 
 load_model_func AND whatever gets passed to .schedule_model_scoring() method. Said that, 
