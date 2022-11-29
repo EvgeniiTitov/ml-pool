@@ -203,6 +203,12 @@ class MLPool:
             self._workers = healthy_workers
         logger.debug("Workers monitoring thread stopped")
 
+    def __enter__(self) -> "MLPool":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.shutdown()
+
     def shutdown(self) -> None:
         if not self._pool_running:
             return

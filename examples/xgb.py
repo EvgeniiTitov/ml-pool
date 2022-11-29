@@ -57,12 +57,11 @@ def pool_scoring():
 
 
 if __name__ == "__main__":
-    pool = MLPool(
+    with MLPool(
         load_model_func=partial(load_model, "iris_xgb.json"),
         score_model_func=score_model,
         nb_workers=10,
-    )
-    pool_scoring()
-    pool.shutdown()
+    ) as pool:
+        pool_scoring()
 
     # sync_scoring()
