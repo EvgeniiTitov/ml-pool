@@ -2,7 +2,7 @@
 
 - Test if a worker just fails (raise manually) - hangs the receiving thread
 - Pool needs to be manually closed (can automate with atexit?)
-- Test with proper model (YOLO or something)
+- Test with proper model (YOLO or something) - fix loading Torch model
 - More thorough testing from multiple threaded callers + API test
 
 
@@ -42,6 +42,11 @@ it reaches a certain threshold, Cloud Run will spin up another instance to handl
 could be expensive
 - If model scoring latency is measured in 1-10 ms, unloading model scoring / feature engineering to
 the pool may only hurt the overall performance, might make more sense to score the model directly
+- ! It is common to spin up multiple instances of the API app inside a container using tools such as
+gunicorn etc. Be careful when using MLPool in such configuration (might run out of CPU), it's primary task is to unload 
+heave model scoring / feature engineering bits from the main process which is the bottleneck to the API
+performance. In our case each container runs only a single instance of the API app, spinning up more instances
+won't help as the bottleneck is model scoring.
 
 ---
 
