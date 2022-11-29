@@ -51,7 +51,7 @@ def pool_scoring():
         )
 
     for job_id in job_ids:
-        print(pool.get_scoring_result(job_id, wait_if_not_available=True))
+        print(pool.get_scoring_result(job_id, wait_if_unavailable=True))
 
     print("Done")
 

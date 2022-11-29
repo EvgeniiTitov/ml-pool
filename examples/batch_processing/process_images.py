@@ -44,7 +44,7 @@ def score_on_the_pool():
         ids.append(id_)
 
     for id_ in ids:
-        result = pool.get_scoring_result(id_, wait_if_not_available=True)
+        result = pool.get_scoring_result(id_, wait_if_unavailable=True)
         print(result)
 
 
