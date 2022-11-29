@@ -12,4 +12,4 @@ pc:
 
 
 test:
-	pytest tests
+	pytest tests -v

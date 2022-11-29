@@ -1,11 +1,6 @@
-### TODO:
-
-- Test if a worker just fails (raise manually) - hangs the receiving thread
-- Test with proper model (YOLO or something) - fix loading Torch model
-
----
-
 ### Use case / why
+
+_Disclamer: THIS IS A NICHE USE CASE AND IS NOT A PROPER WAY TACKLE THE ISSUE_
 
 Cloud Run as of November 2022 does not support GPU machines. Assuming we have a model, 
 which is CPU hungry and takes time to score, which we want to serve through an API while:
@@ -33,17 +28,20 @@ it reaches a certain threshold, Cloud Run will spin up another instance to handl
 
 ---
 
-### Issues / Gotchas:
+### Gotchas:
 
 - IPC in Python is done via pickling / unpickling objects - transferring large objects such as images
 could be expensive
-- If model scoring latency is measured in 1-10 ms, unloading model scoring / feature engineering to
-the pool may only hurt the overall performance, might make more sense to score the model directly
+
+- If your model is light and takes very little time to score, then adding the MLPool will
+only slow things down. In this case it makes sense to score the model directly in the API process. 
+If there is feature engineering work associated with pulling/preprocessing features, then
+it might make sense, depends. 
+
 - ! It is common to spin up multiple instances of the API app inside a container using tools such as
-gunicorn etc. Be careful when using MLPool in such configuration (might run out of CPU), it's primary task is to unload 
-heave model scoring / feature engineering bits from the main process which is the bottleneck to the API
-performance. In our case each container runs only a single instance of the API app, spinning up more instances
-won't help as the bottleneck is model scoring.
+gunicorn etc. Be careful when using MLPool in such configuration as you could overload CPU constantly triggering
+Cloud Run to scale up lol. In our case each container runs only a single instance of the API app, spinning up more instances
+within the same container won't help as the bottleneck is CPU hungry model scoring.
 
 ---
 
@@ -61,11 +59,10 @@ def load_model(model_path: str):
     return model
 ```
 
-2. A callable that scores the model, that must follow the signature (model, *args, **kwargs):
+2. A callable that scores the model, that must follow the signature `(model, *args, **kwargs)`:
 
 ```python
 def score_model(model, features):
-    time.sleep(0.15)  # Imitates a heavy model that takes time to score
     features = xgboost.DMatrix([features])
     return np.argmax(model.predict(features))
 ```
@@ -89,8 +86,9 @@ if __name__ == '__main__':
     ) as pool:
         main()
 ```
-Under the hood, MLPool calls the score_model_func with the model object it gets from the 
-load_model_func AND whatever gets passed to .schedule_model_scoring() method. Said that, 
+
+Under the hood, MLPool calls the provided _score_model_func_ with the model object it gets from the 
+_load_model_func_ AND whatever gets passed to .schedule_model_scoring() method. As a result, 
 the user has full control of what they want to run on the pool.
 
 
@@ -112,3 +110,15 @@ ml_pool - 84 seconds (11 workers)
 sync - 657 seconds (1.5 requests / s)
 ml_pool - 143 seconds (11 workers) (7 requests/s)
 ```
+
+
+- YOLO (TODO)
+
+
+---
+
+### TODO:
+
+- Release as a package
+- Test if a worker just fails (raise manually) - hangs the monitor thread
+- Test with proper model (YOLO or something) - fix loading Torch model
