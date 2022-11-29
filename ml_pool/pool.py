@@ -14,7 +14,10 @@ from ml_pool.custom_types import (
 from ml_pool.config import Config
 from ml_pool.worker import MLWorker
 from ml_pool.messages import JobMessage
-from ml_pool.exceptions import UserProvidedCallableFailedError
+from ml_pool.exceptions import (
+    UserProvidedCallableFailedError,
+    JobWithSuchIDDoesntExistError,
+)
 from ml_pool.utils import get_new_job_id
 
 
@@ -69,6 +72,7 @@ class MLPool:
         )
         self._manager = Manager()
         self._result_dict: ResultDict = self._manager.dict()
+        self._scheduled_job_ids: set[uuid.UUID] = set()
         self._workers: list[MLWorker] = self._start_workers(nb_workers)
         self._monitor_thread_stop_event = threading.Event()
         self._monitor_thread = threading.Thread(
@@ -95,9 +99,10 @@ class MLPool:
         The method returns whatever your score_model_func returns.
         """
         # TODO: This blocks the caller until the message gets enqueued. Bad?
+        # TODO: What if args, kwargs are Nones?
 
         if not self._workers_healthy:
-            logger.error("Cannot schedule scoring. Workers raised exception")
+            logger.error("Cannot schedule scoring. MLPool worker(s) failed")
             self.shutdown()
             raise self._workers_exception  # type: ignore
 
@@ -117,6 +122,8 @@ class MLPool:
                 time.sleep(0.01)  # 10 ms
             else:
                 break
+
+        self._scheduled_job_ids.add(job_id)
         logger.info(f"Scoring job scheduled, id {job_id}")
         return job_id
 
@@ -131,6 +138,10 @@ class MLPool:
         wait_if_not_available flag is True, then the method blocks until
         the result becomes available.
         """
+        if job_id not in self._scheduled_job_ids:
+            raise JobWithSuchIDDoesntExistError(
+                f"Job with id {job_id} was never scheduled"
+            )
         if job_id in self._result_dict:
             return self._retrieve_job_result(job_id)
 
@@ -146,7 +157,7 @@ class MLPool:
             raise self._workers_exception  # type: ignore
 
         while True:
-            time.sleep(0.01)
+            time.sleep(0.01)  # 10 ms
             if job_id in self._result_dict:
                 return self._retrieve_job_result(job_id)
 
@@ -166,6 +177,7 @@ class MLPool:
     def _retrieve_job_result(self, job_id: uuid.UUID) -> Any:
         result = self._result_dict[job_id]
         del self._result_dict[job_id]
+        self._scheduled_job_ids.remove(job_id)
         return result
 
     def _monitor_workers(
