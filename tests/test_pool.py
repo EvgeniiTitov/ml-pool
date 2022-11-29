@@ -34,11 +34,27 @@ def test_providing_faulty_score_model_callable():
         _ = MLPool(load_model, "absolutely_not_callable", 1)
 
 
-def test_pool():
+def test_pool_single_task():
     with MLPool(load_model, score_model, 1) as pool:
         job_id = pool.schedule_model_scoring(1, test=2)
         result = pool.get_scoring_result(job_id, wait_if_not_available=True)
         assert result == ((1,), {"test": 2})
+
+
+def test_pool_multiple_tasks():
+    with MLPool(load_model, score_model, 2) as pool:
+        job_ids = [pool.schedule_model_scoring(i) for i in range(5)]
+        results = [
+            pool.get_scoring_result(job_id, wait_if_not_available=True)
+            for job_id in job_ids
+        ]
+        assert results == [
+            ((0,), {}),
+            ((1,), {}),
+            ((2,), {}),
+            ((3,), {}),
+            ((4,), {}),
+        ]
 
 
 def test_getting_results_for_unknown_id():
