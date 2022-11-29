@@ -12,7 +12,7 @@ __all__ = [
 ]
 
 
-MLModel = object
+MLModel = Any
 LoadModelCallable = Callable[[Optional[Any]], MLModel]
 ScoreModelCallable = Callable[[MLModel, Any], Any]
 OptionalArgs = Optional[Sequence[Any]]
