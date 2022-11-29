@@ -1,6 +1,6 @@
 import sys
 
-sys.path.append("..")
+sys.path.append("../..")
 
 from functools import partial
 
@@ -17,6 +17,9 @@ from ml_pool.logger import get_logger
 logger = get_logger("api")
 
 app = FastAPI()
+
+
+# ------------------ user provided callables to load and score ---------------
 
 
 def load_model(model_path: str):
@@ -36,12 +39,18 @@ def score_model(model, features):
     return np.argmax(model.predict(features))
 
 
+# ------------------------------- schemas ------------------------------------
+
+
 class Request(pydantic.BaseModel):
     features: list[float]
 
 
 class Response(pydantic.BaseModel):
     prediction: int
+
+
+# ------------------------------- endpoints ----------------------------------
 
 
 @app.get("/")
@@ -52,8 +61,12 @@ def health_check():
 @app.post("/iris")
 def score(request: Request) -> Response:
     logger.info(f"Got request for features: {request}")
+
+    # UNLOAD DATA CRUNCHING CPU HEAVY MODEL SCORING TO THE POOL WITHOUT
+    # OVERLOADING THE API PROCESS
     job_id = pool.schedule_model_scoring(features=request.features)
     result = pool.get_scoring_result(job_id, wait_if_not_available=True)
+
     return Response(prediction=result)
 
 

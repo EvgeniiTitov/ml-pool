@@ -30,7 +30,7 @@ def score_model(model, features):
 
 
 def sync_scoring():
-    model = load_model("iris_xgb.json")
+    model = load_model("../apis/iris_xgb.json")
     print("Model loaded")
 
     start = time.perf_counter()

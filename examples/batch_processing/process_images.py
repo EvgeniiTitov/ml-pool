@@ -14,7 +14,7 @@ On the pool - TBA (cant load model, the well known torch problem...)
 def load_model(repo: str, model_name: str):
     import sys
 
-    sys.path.insert(0, "yolov5s.pt")
+    sys.path.insert(0, "../yolov5s.pt")
     return torch.hub.load(repo_or_dir=repo, model=model_name)
 
 

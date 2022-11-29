@@ -125,3 +125,8 @@ ml_pool - 143 seconds (11 workers) (7 requests/s)
 - Release as a package
 - Test if a worker just fails (raise manually) - hangs the monitor thread
 - Test with proper model (YOLO or something) - fix loading Torch model
+
+Feature 1 - Improved get_scoring_result API
+- Pass ScoreModelCallable as a parameter? What if a user has different callables for
+scoring the same model? Now you assume there is only a single function to do that
+- Explicit args=(), kwargs={} parameters for the schedule_model_scoring (how threading.Thread does it)
