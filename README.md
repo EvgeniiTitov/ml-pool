@@ -100,7 +100,19 @@ the user has full control of what they want to run on the pool.
 
 --- 
 
-### Prod results / Benchmarks
+### Benchmarks
 
-For more examples see /examples
+- APIs Fake Load: sync (examples/sync_api.py) VS pool based (examples/ml_pool_api.py)
 
+1. 1 uvicorn worker, 10 concurrent clients, 50 requests / client, 10M CPU burn cycles (imitates model scoring)
+
+```
+sync - 338 seconds
+ml_pool - 84 seconds (11 workers)
+```
+
+2. 1 uvicorn worker, 20 concurrent clients, 50 requests / client, 10M CPU burn cycles
+```
+sync - 657 seconds (1.5 requests / s)
+ml_pool - 143 seconds (11 workers) (7 requests/s)
+```
