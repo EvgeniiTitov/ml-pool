@@ -47,11 +47,11 @@ def pool_scoring():
     job_ids = []
     for _ in range(100):
         job_ids.append(
-            pool.schedule_model_scoring(features=[6.2, 2.2, 4.5, 1.5])
+            pool.schedule_scoring(kwargs={"features": [6.2, 2.2, 4.5, 1.5]})
         )
 
     for job_id in job_ids:
-        print(pool.get_scoring_result(job_id, wait_if_unavailable=True))
+        print(pool.get_result(job_id, wait_if_unavailable=True))
 
     print("Done")
 

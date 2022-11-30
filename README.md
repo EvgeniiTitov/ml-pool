@@ -76,7 +76,6 @@ Then, the pool could be initialised and used as follows:
 ...
 from ml_pool import MLPool
 
-
 app = FastAPI()
 
 
@@ -86,28 +85,28 @@ class Request(pydantic.BaseModel):
 
 class Response(pydantic.BaseModel):
     prediction: int
-    
-    
+
+
 @app.post("/predict")
 def score(request: Request) -> Response:
     # UNLOAD DATA CRUNCHING CPU HEAVY MODEL SCORING TO THE POOL WITHOUT
     # OVERLOADING THE API PROCESS
-    job_id = pool.schedule_model_scoring(features=request.features)
-    result = pool.get_scoring_result(job_id, wait_if_unavailable=True)
+    job_id = pool.schedule_scoring(kwargs={"features": request.features})
+    result = pool.get_result(job_id, wait_if_unavailable=True)
     return Response(prediction=result)
 
 
 if __name__ == '__main__':
     with MLPool(
-        load_model_func=partial(load_model, "xgb.json"),
-        score_model_func=score_model,
-        nb_workers=4
+            load_model_func=partial(load_model, "xgb.json"),
+            score_model_func=score_model,
+            nb_workers=4
     ) as pool:
         uvicorn.run(app)
 ```
 
 Under the hood, MLPool calls the provided _score_model_func_ with the model object it gets from the 
-_load_model_func_ AND whatever gets passed to .schedule_model_scoring() method. As a result, 
+_load_model_func_ AND whatever gets passed to .schedule_scoring() method. As a result, 
 the user has full control of what they want to run on the pool.
 
 
@@ -141,10 +140,8 @@ ml_pool - 143 seconds (11 workers) (7 requests/s)
 - Release as a package
 - Test if a worker just fails (raise manually) - hangs the monitor thread
 - Test with proper model (YOLO or something) - fix loading Torch model
+- Monitoring thread runs to rarely, workers fail, but new jobs get accepted as the flag doesnt get switched cuz the thread is sleeping...
 
-Feature 1 - Improved get_scoring_result API
+Feature 1 - Improved get_result API
 - Pass ScoreModelCallable as a parameter? What if a user has different callables for
 scoring the same model? Now you assume there is only a single function to do that
-- Explicit args=(), kwargs={} parameters for the schedule_model_scoring (how threading.Thread does it)
-
-- wait_if_unavailable to be replaced with timeout

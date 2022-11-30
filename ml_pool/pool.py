@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 from multiprocessing import Queue, Manager
 import threading
 import time
@@ -10,6 +10,8 @@ from ml_pool.custom_types import (
     LoadModelCallable,
     ScoreModelCallable,
     ResultDict,
+    OptionalArgs,
+    OptionalKwargs,
 )
 from ml_pool.config import Config
 from ml_pool.worker import MLWorker
@@ -68,7 +70,7 @@ class MLPool:
         self._score_model_func = score_model_func
 
         self._message_queue: "Queue[JobMessage]" = Queue(
-            maxsize=max(50, message_queue_size)
+            maxsize=max(Config.DEFAULT_MIN_QUEUE_SIZE, message_queue_size)
         )
         self._manager = Manager()
         self._result_dict: ResultDict = self._manager.dict()
@@ -90,12 +92,21 @@ class MLPool:
         time.sleep(1.0)  # Time to spin up workers, load the models etc
         logger.info(f"MLPool initialised. {nb_workers} workers spun up")
 
-    def schedule_model_scoring(self, *args, **kwargs) -> uuid.UUID:
+    def schedule_scoring(
+        self,
+        *,
+        args: OptionalArgs = None,
+        kwargs: OptionalKwargs = None,
+        block_until_scheduled: bool = True,
+    ) -> Optional[uuid.UUID]:
         """
         Creates a model scoring job that will run on a worker using the model
         object loaded by calling the load_model_func and passing the loaded
         model + the args and kwargs passed to this method to the
         score_model_func callable.
+
+        In case the caller must not get blocked (a coroutine) if the task
+        queue is full, set block_until_scheduled to False
 
         Returns whatever the score_model_func callable returns.
         """
@@ -119,6 +130,10 @@ class MLPool:
                         "size or slow down."
                     )
                     warning_shown = True
+
+                if not block_until_scheduled:
+                    return None
+
                 time.sleep(0.01)  # 10 ms
             else:
                 self._scheduled_job_ids.add(job_id)
@@ -127,11 +142,11 @@ class MLPool:
         logger.info(f"New scoring job created ({job_id})")
         return job_id
 
-    def get_scoring_result(
-        self, job_id: uuid.UUID, wait_if_unavailable: bool
+    def get_result(
+        self, job_id: uuid.UUID, wait_if_unavailable: bool = True
     ) -> Any:
         """
-        Get result of the scoring job created using the schedule_model_scoring
+        Get result of the scoring job created using the schedule_scoring
         method.
 
         If the result for the job_id is not available yet and the
@@ -181,7 +196,7 @@ class MLPool:
         return result
 
     def _monitor_workers(
-        self, stop_event: threading.Event, sleep_time: float = 1.0
+        self, stop_event: threading.Event, sleep_time: float = 0.1
     ) -> None:
         """Ensures the required number of healthy processes"""
         logger.debug("Workers monitoring thread started")
@@ -201,7 +216,7 @@ class MLPool:
                         "User provided callable threw exception in worker"
                     )
                     self._workers_exception = exception  # type: ignore
-                    raise exception
+                    break
 
             total_healthy = len(healthy_workers)
             if total_healthy < self._nb_workers:

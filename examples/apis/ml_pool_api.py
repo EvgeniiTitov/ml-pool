@@ -64,8 +64,8 @@ def score(request: Request) -> Response:
 
     # UNLOAD DATA CRUNCHING CPU HEAVY MODEL SCORING TO THE POOL WITHOUT
     # OVERLOADING THE API PROCESS
-    job_id = pool.schedule_model_scoring(features=request.features)
-    result = pool.get_scoring_result(job_id, wait_if_unavailable=True)
+    job_id = pool.schedule_scoring(kwargs={"features": request.features})
+    result = pool.get_result(job_id, wait_if_unavailable=True)
 
     return Response(prediction=result)
 

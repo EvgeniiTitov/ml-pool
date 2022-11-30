@@ -38,13 +38,13 @@ def score_sync():
 def score_on_the_pool():
     ids = []
     for _ in range(100):
-        id_ = pool.schedule_model_scoring(
-            image_path="/Users/etitov1/Downloads/zidane.jpeg"
+        id_ = pool.schedule_scoring(
+            kwargs={"image_path": "/Users/etitov1/Downloads/zidane.jpeg"}
         )
         ids.append(id_)
 
     for id_ in ids:
-        result = pool.get_scoring_result(id_, wait_if_unavailable=True)
+        result = pool.get_result(id_, wait_if_unavailable=True)
         print(result)
 
 
