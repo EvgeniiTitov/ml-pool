@@ -146,3 +146,5 @@ Feature 1 - Improved get_scoring_result API
 - Pass ScoreModelCallable as a parameter? What if a user has different callables for
 scoring the same model? Now you assume there is only a single function to do that
 - Explicit args=(), kwargs={} parameters for the schedule_model_scoring (how threading.Thread does it)
+
+- wait_if_unavailable to be replaced with timeout
