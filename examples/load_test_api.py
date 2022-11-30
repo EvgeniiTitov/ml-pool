@@ -10,7 +10,7 @@ from ml_pool.utils import timer
 
 URL = "http://127.0.0.1:8000/iris"
 CLIENTS = 20
-REQUESTS_PER_CLIENT = 50
+REQUESTS_PER_CLIENT = 20
 
 
 def client(index, features):

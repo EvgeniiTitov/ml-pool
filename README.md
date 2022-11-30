@@ -73,21 +73,37 @@ def score_model(model, features):
 Then, the pool could be initialised and used as follows:
 
 ```python
+...
 from ml_pool import MLPool
 
 
-def main():
-    job_id = pool.schedule_model_scoring(features=[6.2, 2.2, 4.5, 1.5])
+app = FastAPI()
+
+
+class Request(pydantic.BaseModel):
+    features: list[float]
+
+
+class Response(pydantic.BaseModel):
+    prediction: int
+    
+    
+@app.post("/predict")
+def score(request: Request) -> Response:
+    # UNLOAD DATA CRUNCHING CPU HEAVY MODEL SCORING TO THE POOL WITHOUT
+    # OVERLOADING THE API PROCESS
+    job_id = pool.schedule_model_scoring(features=request.features)
     result = pool.get_scoring_result(job_id, wait_if_unavailable=True)
+    return Response(prediction=result)
 
 
 if __name__ == '__main__':
     with MLPool(
-            load_model_func=partial(load_model, "iris_xgb.json"),
-            score_model_func=score_model,
-            nb_workers=4
+        load_model_func=partial(load_model, "xgb.json"),
+        score_model_func=score_model,
+        nb_workers=4
     ) as pool:
-        main()
+        uvicorn.run(app)
 ```
 
 Under the hood, MLPool calls the provided _score_model_func_ with the model object it gets from the 
