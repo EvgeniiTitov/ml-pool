@@ -98,9 +98,9 @@ def score(request: Request) -> Response:
 
 if __name__ == '__main__':
     with MLPool(
-            load_model_func=partial(load_model, "xgb.json"),
-            score_model_func=score_model,
-            nb_workers=4
+        load_model_func=partial(load_model, "xgb.json"),
+        score_model_func=score_model,
+        nb_workers=4
     ) as pool:
         uvicorn.run(app)
 ```
@@ -135,13 +135,29 @@ ml_pool - 143 seconds (11 workers) (7 requests/s)
 
 ---
 
+
 ### TODO:
 
 - Release as a package
-- Test if a worker just fails (raise manually) - hangs the monitor thread
-- Test with proper model (YOLO or something) - fix loading Torch model
-- Monitoring thread runs to rarely, workers fail, but new jobs get accepted as the flag doesnt get switched cuz the thread is sleeping...
 
-Feature 1 - Improved get_result API
-- Pass ScoreModelCallable as a parameter? What if a user has different callables for
-scoring the same model? Now you assume there is only a single function to do that
+- Test with proper model (YOLO or something) - fix loading Torch model
+
+- Test the pool with async code (use the flags block_until_scheduled AND wait_if_unavailable)
+
+- Feature: Redesign workers monitoring and raising the exception if they failed
+
+  - Test if a worker just fails (raise manually) - hangs the monitor thread
+
+  - Monitoring thread runs too rarely, workers fail, but new jobs get accepted as the flag doesnt get switched cuz the thread is sleeping...
+      - Create a function that checks if workers healthy? Could be reused by the monitor + before
+    adding new jobs.
+
+- Feature: Redesign schedule_scoring API to accept a callable (ScoreModelCallable) alongside the parameters. (more
+flexibility in terms of what could be run on the pool, now the entire pool literally works for a single callable...)
+
+
+### Brainstorming (maybe TODO):
+
+- Check the size of user provided args, kwargs. If they are too large, instead of copying them, put them in a memory store (Apache Arrow, Manager.dict?)
+and pass the object ID through the queue? The worker then needs to check if it gets the object or ID of the object.
+Consider the MPIRE's approach to copy-on-write (https://github.com/Slimmer-AI/mpire) + excellent read by the author (https://towardsdatascience.com/mpire-for-python-multiprocessing-is-really-easy-d2ae7999a3e9)
