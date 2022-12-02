@@ -16,3 +16,4 @@ class Config:
     MONITOR_THREAD_SLEEP_TIME = 1.0
 
     CANCELLED_JOBS_KEY_NAME = "cancelled_jobs"
+    TASK_TTL = 10.0

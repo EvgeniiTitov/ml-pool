@@ -1,4 +1,8 @@
-__all__ = ["UserProvidedCallableFailedError", "JobWithSuchIDDoesntExistError"]
+__all__ = [
+    "UserProvidedCallableFailedError",
+    "JobWithSuchIDDoesntExistError",
+    "UserProvidedCallableError",
+]
 
 
 class MLPoolError(Exception):
@@ -13,3 +17,8 @@ class UserProvidedCallableFailedError(MLPoolError):
 class JobWithSuchIDDoesntExistError(MLPoolError):
     """This exception is raised when a user attempts to get scoring results
     using unknown id (such job was never created in the first place)"""
+
+
+class UserProvidedCallableError(MLPoolError):
+    """This exception is raised if something is wrong with the user provided
+    callable"""

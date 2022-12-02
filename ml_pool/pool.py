@@ -4,14 +4,15 @@ import threading
 import time
 from queue import Full
 import uuid
+import datetime
 
 from ml_pool.logger import get_logger
 from ml_pool.custom_types import (
-    LoadModelCallable,
     ScoreModelCallable,
     SharedDict,
     OptionalArgs,
     OptionalKwargs,
+    MLModels,
 )
 from ml_pool.config import Config
 from ml_pool.worker import MLWorker
@@ -19,6 +20,7 @@ from ml_pool.messages import JobMessage
 from ml_pool.exceptions import (
     UserProvidedCallableFailedError,
     JobWithSuchIDDoesntExistError,
+    UserProvidedCallableError,
 )
 from ml_pool.utils import get_new_job_id
 
@@ -35,39 +37,19 @@ logger = get_logger("ml_pool")
 
 class MLPool:
     """
-    MLPool mManages a pool of MLWorkers running in dedicated processes that
-    execute user provided code:
-        - load_model_func - a callable that loads an ML model in the worker
-          process. Ran only once when a worker starts.
-        - score_model_func - a callable that takes as an input the loaded model
-          plus any other parameters passed by the user (*args, **kwargs) and
-          returns the scoring result
-
-    The pool does not depend on the implementation of the user provided code,
-    it can accept anything as long as the callables signatures are adequate
+    TBA
     """
 
     def __init__(
         self,
-        load_model_func: LoadModelCallable,
-        score_model_func: ScoreModelCallable,
+        models_to_load: MLModels,
         nb_workers: int = Config.WORKERS_COUNT,
         message_queue_size: int = Config.MESSAGE_QUEUE_SIZE,
     ) -> None:
+        self._verify_provided_callables(models_to_load)
+        self._models_to_load = models_to_load
+
         self._nb_workers = max(1, nb_workers)
-
-        if not callable(load_model_func):
-            raise UserProvidedCallableFailedError(
-                "load_model_func must be callable returning a ML model"
-            )
-        self._load_model_func = load_model_func
-        if not callable(score_model_func):
-            raise UserProvidedCallableFailedError(
-                "score_model_func must be a callable with signature:"
-                "(model, *args, **kwargs) -> Any"
-            )
-        self._score_model_func = score_model_func
-
         self._message_queue: "Queue[JobMessage]" = Queue(
             maxsize=max(Config.DEFAULT_MIN_QUEUE_SIZE, message_queue_size)
         )
@@ -75,85 +57,68 @@ class MLPool:
         self._shared_dict: SharedDict = self._manager.dict()
         self._shared_dict[Config.CANCELLED_JOBS_KEY_NAME] = set()
         self._scheduled_job_ids: set[uuid.UUID] = set()
-
         self._workers: list[MLWorker] = self._start_workers(nb_workers)
-        self._monitor_thread_stop_event = threading.Event()
-
-        self._monitor_thread = threading.Thread(
-            target=self._monitor_workers,
-            args=(
-                self._monitor_thread_stop_event,
-                Config.MONITOR_THREAD_SLEEP_TIME,
-            ),
-        )
-        self._monitor_thread.start()
-
+        self._monitor_threads, self._stop_events = self._start_monitors()
         self._workers_healthy = True
         self._workers_exception = None
         self._pool_running = True
-
         time.sleep(1.0)  # Time to spin up workers, load the models etc
         logger.info(f"MLPool initialised. {nb_workers} workers spun up")
 
-    def schedule_scoring(
+    def create_job(
         self,
         *,
+        score_model_function: ScoreModelCallable,
+        model_name: str,
         args: OptionalArgs = None,
         kwargs: OptionalKwargs = None,
-        block_until_scheduled: bool = True,
+        wait_if_full: bool = True,
     ) -> Optional[uuid.UUID]:
         """
-        Creates a model scoring job that will run on a worker using the model
-        object loaded by calling the load_model_func and passing the loaded
-        model + the args and kwargs passed to this method to the
-        score_model_func callable.
+        Creates a scoring job on the pool.
 
-        In case the caller must not get blocked (a coroutine) if the task
-        queue is full, set block_until_scheduled to False
+        score_model_function - a callable which accepts the model (model_name)
+        as the first parameter and args, kwargs to run on the pool.
 
-        Returns whatever the score_model_func callable returns.
+        wait_if_full - the pool has certain capacity, if its full and the flag
+        is set, the call is blocking. Set to False to avoid blocking the caller
         """
-        if not self._workers_healthy:
-            logger.error(
-                "Cannot create a new scoring job. MLPool' worker(s) failed"
+        # TODO: Check queue size in advance (fails on MacOS lmao)
+        # TODO: Check if pickable (could be sent to the process)
+
+        self._ensure_workers_healthy(
+            message_if_unhealthy="Cannot create new job, workers failed"
+        )
+        if not callable(score_model_function):
+            raise ValueError(
+                "score_model_function must be a callable accepting load model "
+                "(model_name) and args, kwargs as parameters."
             )
-            self.shutdown()
-            raise self._workers_exception  # type: ignore
-
+        if not model_name or model_name not in self._models_to_load:
+            raise ValueError(
+                f"Incorrect model name provided. "
+                f"Available models: {self._models_to_load.keys()}"
+            )
         job_id = get_new_job_id()
-        job_message = JobMessage(message_id=job_id, args=args, kwargs=kwargs)
-        warning_shown = False
-        while True:
-            try:
-                self._message_queue.put_nowait(job_message)
-            except Full:
-                if not warning_shown:
-                    logger.warning(
-                        "Message (job) queue is full. Increase the queue "
-                        "size or slow down."
-                    )
-                    warning_shown = True
-
-                if not block_until_scheduled:
-                    return None
-
-                time.sleep(0.01)  # 10 ms
-            else:
-                self._scheduled_job_ids.add(job_id)
-                break
-
-        logger.info(f"New scoring job created ({job_id})")
-        return job_id
+        job = JobMessage(
+            created_at=datetime.datetime.now(),
+            message_id=job_id,
+            user_func=score_model_function,
+            model_name=model_name,
+            args=args,
+            kwargs=kwargs,
+        )
+        created = self._enqueue_new_job(job, wait_if_full)
+        return job_id if created else None
 
     def get_result(
-        self, job_id: uuid.UUID, wait_if_unavailable: bool = True
+        self, *, job_id: uuid.UUID, wait_if_unavailable: bool = True
     ) -> Any:
         """
-        Get result of the scoring job created using the schedule_scoring
-        method.
+        Get result of the scoring job created using its id
 
-        If the result for the job_id is not available yet and the
-        wait_if_not_available flag is True, the method blocks the caller until
+        If the result for the job_id is not available at the moment and the
+        wait_if_unavailable flag is set, the method blocks the caller until
         the result becomes available.
         """
         if job_id not in self._scheduled_job_ids:
@@ -167,13 +132,9 @@ class MLPool:
             return
 
         # If workers failed, we won't be able to retrieve the result
-        if not self._workers_healthy:
-            logger.error(
-                "Cannot get scoring results. Workers raised exception"
-            )
-            self.shutdown()
-            raise self._workers_exception  # type: ignore
-
+        self._ensure_workers_healthy(
+            message_if_unhealthy="Cannot get job results, workers failed"
+        )
         while True:
             time.sleep(0.01)  # 10 ms
             if job_id in self._shared_dict:
@@ -188,44 +149,104 @@ class MLPool:
         """
         if job_id not in self._scheduled_job_ids:
             raise JobWithSuchIDDoesntExistError(
-                f"Cannot cancel the job that was never scheduled"
+                f"Cannot cancel the job that doesn't exist"
             )
-
         # The job has already been complete, retrieve the result
         if job_id in self._shared_dict:
             _ = self._retrieve_job_result(job_id)
+            return
 
         # The workers haven't processed the job yet, signal them
         self._cancel_job(job_id)
         logger.debug(f"Cancelled job {job_id}")
 
     def _start_workers(self, nb_workers: int) -> list[MLWorker]:
+        """
+        Start MLWorkers running on other cores which will run the user provided
+        code
+        """
         workers = []
         for _ in range(nb_workers):
             worker = MLWorker(
                 shared_dict=self._shared_dict,
                 message_queue=self._message_queue,
-                load_model_func=self._load_model_func,
-                score_model_func=self._score_model_func,
+                ml_models=self._models_to_load,
             )
             worker.start()
             workers.append(worker)
         return workers
 
+    def _enqueue_new_job(self, job: JobMessage, wait_if_full: bool) -> bool:
+        """
+        Try putting the job in the message queue. The queue might be full, so
+        depending on whether the wait_if_full flag is set this call could be
+        blocking
+        """
+        warning_shown = False
+        while True:
+            try:
+                self._message_queue.put_nowait(job)
+            except Full:
+                if not warning_shown:
+                    logger.warning(
+                        f"Inner message queue is full. Consider increasing "
+                        f"the size or slow down"
+                    )
+                    warning_shown = True
+
+                if not wait_if_full:
+                    return False
+
+                time.sleep(0.01)
+            else:
+                self._scheduled_job_ids.add(job.message_id)
+                break
+        logger.info(f"New job created, id: {job.message_id}")
+        return True
+
     def _cancel_job(self, job_id: uuid.UUID) -> None:
+        """
+        Cancel an active job by adding it to the shared set of jobs to cancel,
+        that each MLWorker checks before executing a newly received task.
+        """
         self._scheduled_job_ids.remove(job_id)
         self._shared_dict[Config.CANCELLED_JOBS_KEY_NAME].add(job_id)
 
     def _retrieve_job_result(self, job_id: uuid.UUID) -> Any:
+        """
+        Retrieve results from the shared dict and clean
+        """
         result = self._shared_dict[job_id]
         del self._shared_dict[job_id]
         self._scheduled_job_ids.remove(job_id)
         return result
 
+    def _start_monitors(
+        self,
+    ) -> tuple[list[threading.Thread], list[threading.Event]]:  # noqa
+        # TODO: Shared dict monitor to clean rubbish
+
+        threads, stop_events = [], []
+
+        # Workers monitoring thread
+        workers_monitor_event = threading.Event()
+        workers_monitor_thread = threading.Thread(
+            target=self._monitor_workers,
+            args=(workers_monitor_event, Config.MONITOR_THREAD_SLEEP_TIME),
+            name="Workers health monitor",
+        )
+        workers_monitor_thread.start()
+        threads.append(workers_monitor_thread)
+        stop_events.append(workers_monitor_event)
+
+        return threads, stop_events
+
     def _monitor_workers(
         self, stop_event: threading.Event, sleep_time: float = 0.1
     ) -> None:
-        """Ensures the required number of healthy processes"""
+        """
+        Ensures the required number of healthy processes
+        """
         logger.debug("Workers monitoring thread started")
         while not stop_event.is_set():
             time.sleep(sleep_time)
@@ -257,6 +278,29 @@ class MLPool:
             self._workers = healthy_workers
         logger.debug("Workers monitoring thread stopped")
 
+    def _ensure_workers_healthy(self, message_if_unhealthy: str = "") -> None:
+        """
+        Checks if the MLWorkers are healthy before the user can do anything
+        to the pool
+        """
+        if not self._workers_healthy:
+            if message_if_unhealthy:
+                logger.error(message_if_unhealthy)
+            self.shutdown()
+            raise self._workers_exception  # type: ignore
+
+    @staticmethod
+    def _verify_provided_callables(ml_models: MLModels) -> None:
+        """
+        Checks if all user provided callables are actual functions that can
+        be called by the MLWorkers
+        """
+        for model_name, load_model_callable in ml_models.items():
+            if not callable(load_model_callable):
+                raise UserProvidedCallableError(
+                    f"Callable to load model {model_name} is not a callable"
+                )
+
     def __enter__(self) -> "MLPool":
         return self
 
@@ -264,18 +308,24 @@ class MLPool:
         self.shutdown()
 
     def shutdown(self) -> None:
+        # TODO: Joins need timeout
+
         if not self._pool_running:
             return
 
-        self._monitor_thread_stop_event.set()
-        self._monitor_thread.join()
-        logger.debug("Workers monitoring thread stopped")
+        # Stop monitors
+        for event in self._stop_events:
+            event.set()
+        for thread in self._monitor_threads:
+            thread.join()
+            logger.debug(f"Thread {thread.name} stopped")
 
+        # Stop MLWorkers
         for worker in self._workers:
             worker.terminate()
         for worker in self._workers:
             worker.join()
-        logger.debug("Workers stopped")
+        logger.debug("MLWorkers stopped")
 
         self._manager.shutdown()
         self._manager.join()

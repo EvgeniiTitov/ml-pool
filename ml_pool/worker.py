@@ -3,12 +3,7 @@ import sys
 import os
 
 from ml_pool.logger import get_logger
-from ml_pool.custom_types import (
-    LoadModelCallable,
-    ScoreModelCallable,
-    MLModel,
-    SharedDict,
-)
+from ml_pool.custom_types import SharedDict, MLModels, LoadedMLModels
 from ml_pool.messages import JobMessage
 from ml_pool.config import Config
 
@@ -21,96 +16,89 @@ logger = get_logger("ml_worker")
 
 class MLWorker(Process):
     """
-    Each MLWorker runs in a dedicated process.
-
-    MLWorker gets two callables:
-        - load_model_func - the callable that instantiates an ML model and
-          returns it. The callable is run only once when the worker starts.
-
-        - score_model_func - the callable that implements the scoring logic. As
-          the parameters it gets the loaded model + args, kwargs passed by the
-          user.
-
-    MLWorker gets messages (JobMessage) from the message queue. Each message
-    stores information such as job id, args and kwargs passed by the user to
-    call the score_model_func callable with.
-
-    After calling the score_model_func(model, *args, **kwargs) and receiving
-    a result, MLWorker puts the result into the shared dict using the job_id
-    as a key and the result as a value.
-
-    If the user provided code fails (either model loading or scoring), the
-    process exits with the specific status code, signalling to the pool to
-    raise the exception
+    TBA
     """
 
     def __init__(
         self,
         shared_dict: SharedDict,
         message_queue: Queue,
-        load_model_func: LoadModelCallable,
-        score_model_func: ScoreModelCallable,
+        ml_models: MLModels,
         *args,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._shared_dict: SharedDict = shared_dict
         self._message_queue: Queue["JobMessage"] = message_queue
-        self._load_model_func = load_model_func
-        self._score_model_func = score_model_func
+        self._ml_models = ml_models
 
     def run(self) -> None:
-        logger.info(f"MLWorker {os.getpid()} started")
+        pid = os.getpid()
+        logger.info(f"MLWorker {pid} started")
 
-        # Load the model object using the user provided callable
-        try:
-            model: MLModel = self._load_model_func()  # type: ignore
-        except Exception as e:
-            logger.error(f"User provided load_model_func failed. Error: {e}")
-            sys.exit(Config.USER_CODE_FAILED_EXIT_CODE)
+        loaded_ml_models: LoadedMLModels = self._load_models(self._ml_models)
+        logger.info(f"MLWorker {pid} loaded models: {self._ml_models.keys()}")
 
-        if not model:
-            logger.error(
-                "User provided load_model_func hasn't returned a valid object"
-            )
-            sys.exit(Config.USER_CODE_FAILED_EXIT_CODE)
-
-        logger.info(
-            f"MLWorker {os.getpid()} loaded the model: "
-            f"{model.__class__.__name__}"
-        )
-        # Start processing messages using the loaded model and the scoring
-        # function provided by the user
         while True:
             message: JobMessage = self._message_queue.get()
-
             job_id = message.message_id
+            func = message.user_func
+            model_name = message.model_name
+            args = message.args or []
+            kwargs = message.kwargs or {}
 
-            # The caller could cancel the job, double check the job we got
-            # still needs to be processed
+            # Check if the job's been cancelled by the caller
             if job_id in self._shared_dict[Config.CANCELLED_JOBS_KEY_NAME]:
                 self._shared_dict[Config.CANCELLED_JOBS_KEY_NAME].remove(
                     job_id
                 )
                 continue
 
-            args = message.args or []
-            kwargs = message.kwargs or {}
+            if model_name not in loaded_ml_models:
+                logger.error(
+                    f"Model {model_name} wasn't loaded by the MLWorker, "
+                    f"cannot pass it to callable {func.__name__}"
+                )
+                sys.exit(Config.USER_CODE_FAILED_EXIT_CODE)
 
             try:
-                result = self._score_model_func(
-                    model, *args, **kwargs
+                result = func(
+                    loaded_ml_models[model_name], *args, **kwargs
                 )  # type: ignore
             except Exception as e:
                 logger.error(
-                    f"User provided score model callable failed for "
-                    f"model {model.__class__.__name__} with args {args}, "
-                    f"kwargs {kwargs}. Error: {e}"
+                    f"User provided callable {func.__name__} called with "
+                    f"model {model_name}, args {args}, kwargs {kwargs} failed"
+                    f"with error: {e}"
                 )
                 sys.exit(Config.USER_CODE_FAILED_EXIT_CODE)
 
             logger.debug(
-                f"MLWorker successfully scored model for id: {job_id}, "
-                f"result: {result}"
+                f"MLWorker {pid} ran callable {func.__name__} with model "
+                f"{model_name}, args {args}, kwargs {kwargs}. Result: {result}"
             )
             self._shared_dict[job_id] = result
+
+    @staticmethod
+    def _load_models(ml_models: MLModels) -> LoadedMLModels:
+        loaded_models = {}
+
+        for model_name, load_model_callable in ml_models.items():
+            try:
+                loaded_model = load_model_callable()  # type: ignore
+            except Exception as e:
+                logger.error(
+                    f"Failed while loading model {model_name} using "
+                    f"{load_model_callable.__name__} callable. Error: {e}"
+                )
+                sys.exit(Config.USER_CODE_FAILED_EXIT_CODE)
+
+            if not loaded_model:
+                logger.error(
+                    f"Provided callable {load_model_callable.__name__} to "
+                    f"load model {model_name} didn't return a valid object"
+                )
+                sys.exit(Config.USER_CODE_FAILED_EXIT_CODE)
+            loaded_models[model_name] = loaded_model
+
+        return loaded_models

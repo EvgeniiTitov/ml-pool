@@ -138,7 +138,7 @@ ml_pool - 143 seconds (11 workers) (7 requests/s)
 
 ### TODO:
 
-- Result dict needs to be cleaned if the caller never consumes the result (TTL for the result?)
+- Result dict needs to be cleaned if the caller never consumes the result (TTL for the result? Another monitor to check the scheduled tasks)
 
 - Ability to provide multiple objects (models to load). Like a KV with model name and a callable to load it.
 

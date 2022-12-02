@@ -9,12 +9,16 @@ __all__ = [
     "OptionalKwargs",
     "SharedDict",
     "MLModel",
+    "MLModels",
+    "LoadedMLModels",
 ]
 
 
-MLModel = Any
+MLModel = Any  # TODO Consider using an interface
 LoadModelCallable = Callable[[Optional[Any]], MLModel]
-ScoreModelCallable = Callable[[MLModel, Any], Any]
+MLModels = Dict[str, LoadModelCallable]
+LoadedMLModels = Dict[str, MLModel]
 OptionalArgs = Optional[Sequence[Any]]
 OptionalKwargs = Optional[Dict[str, Any]]
+ScoreModelCallable = Callable[[MLModel, OptionalArgs, OptionalKwargs], Any]
 SharedDict = Dict[Union[str, uuid.UUID], Any]
