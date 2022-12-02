@@ -58,10 +58,14 @@ class MLPool:
         self._shared_dict[Config.CANCELLED_JOBS_KEY_NAME] = set()
         self._scheduled_job_ids: set[uuid.UUID] = set()
         self._workers: list[MLWorker] = self._start_workers(nb_workers)
-        self._monitor_threads, self._stop_events = self._start_monitors()
+        (
+            self._background_threads,
+            self._stop_events,
+        ) = self._start_background_threads()
         self._workers_healthy = True
         self._workers_exception = None
         self._pool_running = True
+
         time.sleep(1.0)  # Time to spin up workers, load the models etc
         logger.info(f"MLPool initialised. {nb_workers} workers spun up")
 
@@ -123,7 +127,7 @@ class MLPool:
         """
         if job_id not in self._scheduled_job_ids:
             raise JobWithSuchIDDoesntExistError(
-                f"Job with id {job_id} doesn't exist"
+                f"Job with id {job_id} doesn't exist or expired"
             )
         if job_id in self._shared_dict:
             return self._retrieve_job_result(job_id)
@@ -149,7 +153,7 @@ class MLPool:
         """
         if job_id not in self._scheduled_job_ids:
             raise JobWithSuchIDDoesntExistError(
-                f"Cannot cancel the job that doesn't exist"
+                f"Cannot cancel the job that doesn't exist or expired"
             )
         # The job has already been complete, retrieve the result
         if job_id in self._shared_dict:
@@ -216,16 +220,17 @@ class MLPool:
         """
         Retrieve results from the shared dict and clean
         """
-        result = self._shared_dict[job_id]
+        result, _ = self._shared_dict[job_id]
         del self._shared_dict[job_id]
         self._scheduled_job_ids.remove(job_id)
         return result
 
-    def _start_monitors(
+    def _start_background_threads(
         self,
-    ) -> tuple[list[threading.Thread], list[threading.Event]]:  # noqa
-        # TODO: Shared dict monitor to clean rubbish
-
+    ) -> tuple[list[threading.Thread], list[threading.Event]]:
+        """
+        Starts threads that do some background tasks
+        """
         threads, stop_events = [], []
 
         # Workers monitoring thread
@@ -239,15 +244,27 @@ class MLPool:
         threads.append(workers_monitor_thread)
         stop_events.append(workers_monitor_event)
 
+        # Shared dict cleaning thread
+        shared_dict_cleaner_event = threading.Event()
+        shared_dict_cleaner_thread = threading.Thread(
+            target=self._clean_shared_dict,
+            args=(shared_dict_cleaner_event, Config.CLEANER_THREAD_SLEEP_TIME),
+            name="Shared dict cleaner",
+        )
+        shared_dict_cleaner_thread.start()
+        threads.append(shared_dict_cleaner_thread)
+        stop_events.append(shared_dict_cleaner_event)
+
         return threads, stop_events
 
     def _monitor_workers(
         self, stop_event: threading.Event, sleep_time: float = 0.1
     ) -> None:
         """
-        Ensures the required number of healthy processes
+        Ensures the required number of healthy MLWorkers
         """
         logger.debug("Workers monitoring thread started")
+
         while not stop_event.is_set():
             time.sleep(sleep_time)
 
@@ -274,9 +291,34 @@ class MLPool:
                 healthy_workers.extend(
                     self._start_workers(self._nb_workers - total_healthy)
                 )
-
             self._workers = healthy_workers
+
         logger.debug("Workers monitoring thread stopped")
+
+    def _clean_shared_dict(
+        self, stop_event: threading.Event, sleep_time: float = 0.1
+    ) -> None:
+        """
+        Removes results from the shared dict that have been there for too long,
+        the caller probably will never retrieve them (WS disconnected etc) but
+        they keep consuming memory
+        """
+        logger.debug("Result dict cleaner thread started")
+
+        while not stop_event.is_set():
+            time.sleep(sleep_time)
+            for key, value in self._shared_dict.items():
+                if not isinstance(key, uuid.UUID):
+                    continue
+
+                processed_at, _ = value
+                if (
+                    datetime.datetime.now() - processed_at
+                ).total_seconds() > Config.RESULT_TTL:
+                    self._retrieve_job_result(key)
+                    logger.debug(f"Job {key} expired, cleaned")
+
+        logger.debug("Result dict cleaner thread stopped")
 
     def _ensure_workers_healthy(self, message_if_unhealthy: str = "") -> None:
         """
@@ -313,10 +355,10 @@ class MLPool:
         if not self._pool_running:
             return
 
-        # Stop monitors
+        # Stop background threads
         for event in self._stop_events:
             event.set()
-        for thread in self._monitor_threads:
+        for thread in self._background_threads:
             thread.join()
             logger.debug(f"Thread {thread.name} stopped")
 

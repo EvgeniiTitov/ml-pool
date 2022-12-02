@@ -1,6 +1,7 @@
 from multiprocessing import Process, Queue
 import sys
 import os
+import datetime
 
 from ml_pool.logger import get_logger
 from ml_pool.custom_types import SharedDict, MLModels, LoadedMLModels
@@ -77,7 +78,7 @@ class MLWorker(Process):
                 f"MLWorker {pid} ran callable {func.__name__} with model "
                 f"{model_name}, args {args}, kwargs {kwargs}. Result: {result}"
             )
-            self._shared_dict[job_id] = result
+            self._shared_dict[job_id] = (datetime.datetime.now(), result)
 
     @staticmethod
     def _load_models(ml_models: MLModels) -> LoadedMLModels:
