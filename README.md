@@ -138,7 +138,12 @@ ml_pool - 143 seconds (11 workers) (7 requests/s)
 
 ### TODO:
 
-- Result dict needs to be cleaned if the caller never consume the result (TTL for the result?)
+- Result dict needs to be cleaned if the caller never consumes the result (TTL for the result?)
+
+- Ability to provide multiple objects (models to load). Like a KV with model name and a callable to load it.
+
+- When scheduling model scoring, provide the function for scoring (instead of passing it in the constructor), args and
+the loaded model to use (as the first parameter)
 
 - Release as a package
 
@@ -154,8 +159,7 @@ ml_pool - 143 seconds (11 workers) (7 requests/s)
       - Create a function that checks if workers healthy? Could be reused by the monitor + before
     adding new jobs.
 
-- Feature: Redesign schedule_scoring API to accept a callable (ScoreModelCallable) alongside the parameters. (more
-flexibility in terms of what could be run on the pool, now the entire pool literally works for a single callable...)
+- Test with your WS project
 
 
 ### Brainstorming (maybe TODO):
