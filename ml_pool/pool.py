@@ -343,12 +343,6 @@ class MLPool:
                     f"Callable to load model {model_name} is not a callable"
                 )
 
-    def __enter__(self) -> "MLPool":
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.shutdown()
-
     def shutdown(self) -> None:
         # TODO: Joins need timeout
 
@@ -375,3 +369,9 @@ class MLPool:
 
         self._pool_running = False
         logger.info("MLPool shutdown gracefully")
+
+    def __enter__(self) -> "MLPool":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.shutdown()
