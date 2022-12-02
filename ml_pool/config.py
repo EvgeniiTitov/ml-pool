@@ -14,3 +14,5 @@ class Config:
 
     USER_CODE_FAILED_EXIT_CODE = 222
     MONITOR_THREAD_SLEEP_TIME = 1.0
+
+    CANCELLED_JOBS_KEY_NAME = "cancelled_jobs"

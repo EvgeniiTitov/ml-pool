@@ -138,6 +138,8 @@ ml_pool - 143 seconds (11 workers) (7 requests/s)
 
 ### TODO:
 
+- Result dict needs to be cleaned if the caller never consume the result (TTL for the result?)
+
 - Release as a package
 
 - Test with proper model (YOLO or something) - fix loading Torch model

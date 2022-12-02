@@ -115,3 +115,23 @@ def test_pool_closes_with_faulty_user_code():
             assert pool._workers_healthy is False
             assert pool._workers_exception is not None
             _ = pool.get_result(task_id, wait_if_unavailable=True)
+
+
+def long_scoring(model, *args, **kwargs):
+    time.sleep(1.0)
+    return model.predict(*args, **kwargs)
+
+
+def test_cancelling_job():
+    with MLPool(load_model, long_scoring, 1) as pool:
+        job_1 = pool.schedule_scoring(args=(1,))
+        job_2 = pool.schedule_scoring(args=(2,))
+        pool.cancel_job(job_2)
+
+        assert pool.get_result(job_1) == ((1,), {})
+
+        time.sleep(0.2)
+
+        # Worker skipped the job and cleaned the result dict
+        assert job_2 not in pool._shared_dict
+        assert job_2 not in pool._shared_dict[Config.CANCELLED_JOBS_KEY_NAME]

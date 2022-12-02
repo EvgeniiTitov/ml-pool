@@ -9,7 +9,7 @@ from ml_pool.logger import get_logger
 from ml_pool.custom_types import (
     LoadModelCallable,
     ScoreModelCallable,
-    ResultDict,
+    SharedDict,
     OptionalArgs,
     OptionalKwargs,
 )
@@ -61,7 +61,6 @@ class MLPool:
                 "load_model_func must be callable returning a ML model"
             )
         self._load_model_func = load_model_func
-
         if not callable(score_model_func):
             raise UserProvidedCallableFailedError(
                 "score_model_func must be a callable with signature:"
@@ -73,10 +72,13 @@ class MLPool:
             maxsize=max(Config.DEFAULT_MIN_QUEUE_SIZE, message_queue_size)
         )
         self._manager = Manager()
-        self._result_dict: ResultDict = self._manager.dict()
+        self._shared_dict: SharedDict = self._manager.dict()
+        self._shared_dict[Config.CANCELLED_JOBS_KEY_NAME] = set()
         self._scheduled_job_ids: set[uuid.UUID] = set()
+
         self._workers: list[MLWorker] = self._start_workers(nb_workers)
         self._monitor_thread_stop_event = threading.Event()
+
         self._monitor_thread = threading.Thread(
             target=self._monitor_workers,
             args=(
@@ -89,6 +91,7 @@ class MLPool:
         self._workers_healthy = True
         self._workers_exception = None
         self._pool_running = True
+
         time.sleep(1.0)  # Time to spin up workers, load the models etc
         logger.info(f"MLPool initialised. {nb_workers} workers spun up")
 
@@ -155,9 +158,9 @@ class MLPool:
         """
         if job_id not in self._scheduled_job_ids:
             raise JobWithSuchIDDoesntExistError(
-                f"Job with id {job_id} was never scheduled"
+                f"Job with id {job_id} doesn't exist"
             )
-        if job_id in self._result_dict:
+        if job_id in self._shared_dict:
             return self._retrieve_job_result(job_id)
 
         if not wait_if_unavailable:
@@ -173,14 +176,34 @@ class MLPool:
 
         while True:
             time.sleep(0.01)  # 10 ms
-            if job_id in self._result_dict:
+            if job_id in self._shared_dict:
                 return self._retrieve_job_result(job_id)
+
+    def cancel_job(self, job_id: uuid.UUID) -> None:
+        """
+        Cancel a job
+
+        Might be beneficial when, say, a WS client disconnects, so there is
+        nobody to return the result to --> cancel the scoring job.
+        """
+        if job_id not in self._scheduled_job_ids:
+            raise JobWithSuchIDDoesntExistError(
+                f"Cannot cancel the job that was never scheduled"
+            )
+
+        # The job has already been complete, retrieve the result
+        if job_id in self._shared_dict:
+            _ = self._retrieve_job_result(job_id)
+
+        # The workers haven't processed the job yet, signal them
+        self._cancel_job(job_id)
+        logger.debug(f"Cancelled job {job_id}")
 
     def _start_workers(self, nb_workers: int) -> list[MLWorker]:
         workers = []
         for _ in range(nb_workers):
             worker = MLWorker(
-                result_dict=self._result_dict,
+                shared_dict=self._shared_dict,
                 message_queue=self._message_queue,
                 load_model_func=self._load_model_func,
                 score_model_func=self._score_model_func,
@@ -189,9 +212,13 @@ class MLPool:
             workers.append(worker)
         return workers
 
+    def _cancel_job(self, job_id: uuid.UUID) -> None:
+        self._scheduled_job_ids.remove(job_id)
+        self._shared_dict[Config.CANCELLED_JOBS_KEY_NAME].add(job_id)
+
     def _retrieve_job_result(self, job_id: uuid.UUID) -> Any:
-        result = self._result_dict[job_id]
-        del self._result_dict[job_id]
+        result = self._shared_dict[job_id]
+        del self._shared_dict[job_id]
         self._scheduled_job_ids.remove(job_id)
         return result
 

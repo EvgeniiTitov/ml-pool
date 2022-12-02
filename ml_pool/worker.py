@@ -7,7 +7,7 @@ from ml_pool.custom_types import (
     LoadModelCallable,
     ScoreModelCallable,
     MLModel,
-    ResultDict,
+    SharedDict,
 )
 from ml_pool.messages import JobMessage
 from ml_pool.config import Config
@@ -46,7 +46,7 @@ class MLWorker(Process):
 
     def __init__(
         self,
-        result_dict: ResultDict,
+        shared_dict: SharedDict,
         message_queue: Queue,
         load_model_func: LoadModelCallable,
         score_model_func: ScoreModelCallable,
@@ -54,7 +54,7 @@ class MLWorker(Process):
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
-        self._result_dict: ResultDict = result_dict
+        self._shared_dict: SharedDict = shared_dict
         self._message_queue: Queue["JobMessage"] = message_queue
         self._load_model_func = load_model_func
         self._score_model_func = score_model_func
@@ -85,6 +85,15 @@ class MLWorker(Process):
             message: JobMessage = self._message_queue.get()
 
             job_id = message.message_id
+
+            # The caller could cancel the job, double check the job we got
+            # still needs to be processed
+            if job_id in self._shared_dict[Config.CANCELLED_JOBS_KEY_NAME]:
+                self._shared_dict[Config.CANCELLED_JOBS_KEY_NAME].remove(
+                    job_id
+                )
+                continue
+
             args = message.args or []
             kwargs = message.kwargs or {}
 
@@ -104,4 +113,4 @@ class MLWorker(Process):
                 f"MLWorker successfully scored model for id: {job_id}, "
                 f"result: {result}"
             )
-            self._result_dict[job_id] = result
+            self._shared_dict[job_id] = result
