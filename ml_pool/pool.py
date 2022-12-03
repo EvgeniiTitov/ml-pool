@@ -9,16 +9,17 @@ import datetime
 from ml_pool.logger import get_logger
 from ml_pool.custom_types import (
     ScoreModelCallable,
-    SharedDict,
+    ResultDict,
     OptionalArgs,
     OptionalKwargs,
     MLModels,
+    CancelledDict,
 )
 from ml_pool.config import Config
 from ml_pool.worker import MLWorker
 from ml_pool.messages import JobMessage
 from ml_pool.exceptions import (
-    UserProvidedCallableFailedError,
+    MLWorkerFailedBecauseOfUserProvidedCodeError,
     JobWithSuchIDDoesntExistError,
     UserProvidedCallableError,
 )
@@ -26,7 +27,7 @@ from ml_pool.utils import get_new_job_id
 
 
 # TODO: Can a worker process just hang? Should I kill it manually every now
-#       and then?
+#       and then? (Say after they process N messages or live for M time)
 
 
 __all__ = ["MLPool"]
@@ -45,37 +46,47 @@ class MLPool:
         models_to_load: MLModels,
         nb_workers: int = Config.WORKERS_COUNT,
         message_queue_size: int = Config.MESSAGE_QUEUE_SIZE,
+        result_ttl: float = Config.RESULT_TTL,
     ) -> None:
         self._verify_provided_callables(models_to_load)
         self._models_to_load = models_to_load
 
+        # Create message queue to send jobs to MLWorkers
         self._nb_workers = max(1, nb_workers)
         self._message_queue: "Queue[JobMessage]" = Queue(
             maxsize=max(Config.DEFAULT_MIN_QUEUE_SIZE, message_queue_size)
         )
+
+        # Create a manager and shared dictionaries for bidirectional data
+        # exchange between the pool and ML Workers
         self._manager = Manager()
-        self._shared_dict: SharedDict = self._manager.dict()
-        self._shared_dict[Config.CANCELLED_JOBS_KEY_NAME] = set()
+        self._result_dict: ResultDict = self._manager.dict()
+        self._cancel_dict: CancelledDict = self._manager.dict()
         self._scheduled_job_ids: set[uuid.UUID] = set()
+
         self._workers: list[MLWorker] = self._start_workers(nb_workers)
         (
             self._background_threads,
             self._stop_events,
         ) = self._start_background_threads()
-        self._workers_healthy = True
-        self._workers_exception = None
-        self._pool_running = True
 
+        self._result_ttl = max(result_ttl, Config.RESULT_TTL)
+        self._workers_healthy = True
+        self._worker_error_description = ""
+        self._worker_error_message = ""
+        self._workers_exit_code = None
+
+        self._pool_running = True
         time.sleep(1.0)  # Time to spin up workers, load the models etc
         logger.info(f"MLPool initialised. {nb_workers} workers spun up")
 
     def create_job(
         self,
-        *,
         score_model_function: ScoreModelCallable,
         model_name: str,
         args: OptionalArgs = None,
         kwargs: OptionalKwargs = None,
+        *,
         wait_if_full: bool = True,
     ) -> Optional[uuid.UUID]:
         """
@@ -101,11 +112,10 @@ class MLPool:
         if not model_name or model_name not in self._models_to_load:
             raise ValueError(
                 f"Incorrect model name provided. "
-                f"Available models: {self._models_to_load.keys()}"
+                f"Available models: {list(self._models_to_load.keys())}"
             )
         job_id = get_new_job_id()
         job = JobMessage(
-            created_at=datetime.datetime.now(),
             message_id=job_id,
             user_func=score_model_function,
             model_name=model_name,
@@ -116,7 +126,7 @@ class MLPool:
         return job_id if created else None
 
     def get_result(
-        self, *, job_id: uuid.UUID, wait_if_unavailable: bool = True
+        self, job_id: uuid.UUID, *, wait_if_unavailable: bool = True
     ) -> Any:
         """
         Get result of the scoring job created using its id
@@ -129,7 +139,7 @@ class MLPool:
             raise JobWithSuchIDDoesntExistError(
                 f"Job with id {job_id} doesn't exist or expired"
             )
-        if job_id in self._shared_dict:
+        if job_id in self._result_dict:
             return self._retrieve_job_result(job_id)
 
         if not wait_if_unavailable:
@@ -141,7 +151,7 @@ class MLPool:
         )
         while True:
             time.sleep(0.01)  # 10 ms
-            if job_id in self._shared_dict:
+            if job_id in self._result_dict:
                 return self._retrieve_job_result(job_id)
 
     def cancel_job(self, job_id: uuid.UUID) -> None:
@@ -152,11 +162,13 @@ class MLPool:
         nobody to return the result to --> cancel the scoring job.
         """
         if job_id not in self._scheduled_job_ids:
-            raise JobWithSuchIDDoesntExistError(
-                f"Cannot cancel the job that doesn't exist or expired"
+            logger.info(
+                f"Job with id {job_id} was never scheduled or completed"
             )
+            return
+
         # The job has already been complete, retrieve the result
-        if job_id in self._shared_dict:
+        if job_id in self._result_dict:
             _ = self._retrieve_job_result(job_id)
             return
 
@@ -172,8 +184,9 @@ class MLPool:
         workers = []
         for _ in range(nb_workers):
             worker = MLWorker(
-                shared_dict=self._shared_dict,
                 message_queue=self._message_queue,
+                result_dict=self._result_dict,
+                cancelled_dict=self._cancel_dict,
                 ml_models=self._models_to_load,
             )
             worker.start()
@@ -214,14 +227,14 @@ class MLPool:
         that each MLWorker checks before executing a newly received task.
         """
         self._scheduled_job_ids.remove(job_id)
-        self._shared_dict[Config.CANCELLED_JOBS_KEY_NAME].add(job_id)
+        self._cancel_dict[job_id] = None  # Using as a set (hacky)
 
     def _retrieve_job_result(self, job_id: uuid.UUID) -> Any:
         """
         Retrieve results from the shared dict and clean
         """
-        result, _ = self._shared_dict[job_id]
-        del self._shared_dict[job_id]
+        _, result = self._result_dict[job_id]
+        del self._result_dict[job_id]
         self._scheduled_job_ids.remove(job_id)
         return result
 
@@ -237,7 +250,7 @@ class MLPool:
         workers_monitor_event = threading.Event()
         workers_monitor_thread = threading.Thread(
             target=self._monitor_workers,
-            args=(workers_monitor_event, Config.MONITOR_THREAD_SLEEP_TIME),
+            args=(workers_monitor_event, Config.MONITOR_THREAD_FREQUENCY),
             name="Workers health monitor",
         )
         workers_monitor_thread.start()
@@ -247,8 +260,8 @@ class MLPool:
         # Shared dict cleaning thread
         shared_dict_cleaner_event = threading.Event()
         shared_dict_cleaner_thread = threading.Thread(
-            target=self._clean_shared_dict,
-            args=(shared_dict_cleaner_event, Config.CLEANER_THREAD_SLEEP_TIME),
+            target=self._clean_result_dict,
+            args=(shared_dict_cleaner_event, Config.CLEANER_THREAD_FREQUENCY),
             name="Shared dict cleaner",
         )
         shared_dict_cleaner_thread.start()
@@ -258,7 +271,9 @@ class MLPool:
         return threads, stop_events
 
     def _monitor_workers(
-        self, stop_event: threading.Event, sleep_time: float = 0.1
+        self,
+        stop_event: threading.Event,
+        sleep_time: float = Config.MONITOR_THREAD_FREQUENCY,
     ) -> None:
         """
         Ensures the required number of healthy MLWorkers
@@ -268,38 +283,48 @@ class MLPool:
         while not stop_event.is_set():
             time.sleep(sleep_time)
 
+            # Check workers in the pool, if a worker failed because of a user
+            # provided callable, stop the pool
             healthy_workers = []
             for worker in self._workers:
                 if worker.is_alive():
                     healthy_workers.append(worker)
                 elif (
                     not worker.is_alive()
-                    and worker.exitcode == Config.USER_CODE_FAILED_EXIT_CODE
+                    and worker.exitcode not in Config.CUSTOM_EXIT_CODES_MAPPING
+                ):
+                    logger.error("MLWorker failed unexpectedly, restarting...")
+                elif (
+                    not worker.is_alive()
+                    and worker.exitcode in Config.CUSTOM_EXIT_CODES_MAPPING
                 ):
                     self._workers_healthy = False
-                    exception = UserProvidedCallableFailedError(
-                        "User provided callable threw exception in worker"
+                    self._worker_error_message = (
+                        worker.error_message  # type: ignore
                     )
-                    self._workers_exception = exception  # type: ignore
-                    break
+                    self._worker_error_description = (
+                        Config.CUSTOM_EXIT_CODES_MAPPING[worker.exitcode]
+                    )
+                    self._workers_exit_code = worker.exitcode  # type: ignore
+                    return
 
             total_healthy = len(healthy_workers)
             if total_healthy < self._nb_workers:
-                logger.info(
-                    "Fewer workers than required, adding new to the pool"
-                )
+                logger.debug("Fewer workers than required, adding more")
                 healthy_workers.extend(
                     self._start_workers(self._nb_workers - total_healthy)
                 )
-            self._workers = healthy_workers
+            self._workers[:] = healthy_workers
 
         logger.debug("Workers monitoring thread stopped")
 
-    def _clean_shared_dict(
-        self, stop_event: threading.Event, sleep_time: float = 0.1
+    def _clean_result_dict(
+        self,
+        stop_event: threading.Event,
+        sleep_time: float = Config.CLEANER_THREAD_FREQUENCY,
     ) -> None:
         """
-        Removes results from the shared dict that have been there for too long,
+        Removes results from the result dict that have been there for too long,
         the caller probably will never retrieve them (WS disconnected etc) but
         they keep consuming memory
         """
@@ -307,14 +332,11 @@ class MLPool:
 
         while not stop_event.is_set():
             time.sleep(sleep_time)
-            for key, value in self._shared_dict.items():
-                if not isinstance(key, uuid.UUID):
-                    continue
-
+            for key, value in self._result_dict.items():
                 processed_at, _ = value
                 if (
                     datetime.datetime.now() - processed_at
-                ).total_seconds() > Config.RESULT_TTL:
+                ).total_seconds() > self._result_ttl:
                     self._retrieve_job_result(key)
                     logger.debug(f"Job {key} expired, cleaned")
 
@@ -328,8 +350,12 @@ class MLPool:
         if not self._workers_healthy:
             if message_if_unhealthy:
                 logger.error(message_if_unhealthy)
+
             self.shutdown()
-            raise self._workers_exception  # type: ignore
+            raise MLWorkerFailedBecauseOfUserProvidedCodeError(
+                f"Error description {self._worker_error_description}. "
+                f"Error message: {self._worker_error_message}"
+            )
 
     @staticmethod
     def _verify_provided_callables(ml_models: MLModels) -> None:
@@ -349,12 +375,12 @@ class MLPool:
         if not self._pool_running:
             return
 
+        logger.info("Shutting down the pool...")
         # Stop background threads
         for event in self._stop_events:
             event.set()
         for thread in self._background_threads:
             thread.join()
-            logger.debug(f"Thread {thread.name} stopped")
 
         # Stop MLWorkers
         for worker in self._workers:

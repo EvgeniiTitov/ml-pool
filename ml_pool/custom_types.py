@@ -1,4 +1,4 @@
-from typing import Any, Callable, Sequence, Dict, Optional, Union
+from typing import Any, Callable, Sequence, Dict, Optional
 import uuid
 
 
@@ -7,10 +7,11 @@ __all__ = [
     "ScoreModelCallable",
     "OptionalArgs",
     "OptionalKwargs",
-    "SharedDict",
+    "ResultDict",
     "MLModel",
     "MLModels",
     "LoadedMLModels",
+    "CancelledDict",
 ]
 
 
@@ -21,4 +22,5 @@ LoadedMLModels = Dict[str, MLModel]
 OptionalArgs = Optional[Sequence[Any]]
 OptionalKwargs = Optional[Dict[str, Any]]
 ScoreModelCallable = Callable[[MLModel, OptionalArgs, OptionalKwargs], Any]
-SharedDict = Dict[Union[str, uuid.UUID], Any]
+ResultDict = Dict[uuid.UUID, Any]
+CancelledDict = Dict[uuid.UUID, Any]

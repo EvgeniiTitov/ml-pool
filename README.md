@@ -145,6 +145,11 @@ ml_pool - 143 seconds (11 workers) (7 requests/s)
 - WIP When scheduling model scoring, provide the function for scoring (instead of passing it in the constructor), args and
 the loaded model to use (as the first parameter)
 
+- If a worker dies, but it was processing something, then the caller will infinitely wait
+for the result!
+
+- What if user provided callable relies on other objects/clients such as BigQuery client?
+
 - Release as a package
 
 - Test with proper model (YOLO or something) - fix loading Torch model

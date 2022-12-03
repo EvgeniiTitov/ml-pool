@@ -2,6 +2,7 @@ __all__ = [
     "UserProvidedCallableFailedError",
     "JobWithSuchIDDoesntExistError",
     "UserProvidedCallableError",
+    "MLWorkerFailedBecauseOfUserProvidedCodeError",
 ]
 
 
@@ -22,3 +23,8 @@ class JobWithSuchIDDoesntExistError(MLPoolError):
 class UserProvidedCallableError(MLPoolError):
     """This exception is raised if something is wrong with the user provided
     callable"""
+
+
+class MLWorkerFailedBecauseOfUserProvidedCodeError(MLPoolError):
+    """This exception is raised if an MLWorker fails because of a user provided
+    code"""
