@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 jobs:
 
-  Test Linux:
+  Test-Linux:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -23,7 +23,7 @@ jobs:
       - name: Run tests
         run: pytest tests -v
 
-  Test Windows:
+  Test-Windows:
     runs-on: windows-latest
     strategy:
       matrix:
