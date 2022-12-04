@@ -1,125 +1,212 @@
-# import multiprocessing
-# import time
-#
-# import pytest
-#
-# from ml_pool.worker import MLWorker
-# from ml_pool.config import Config
-# from ml_pool.utils import get_new_job_id
-# from ml_pool.messages import JobMessage
-#
-#
-# @pytest.fixture(scope="module")
-# def manager():
-#     return multiprocessing.Manager()
-#
-#
-# @pytest.fixture(scope="module")
-# def result_dict(manager):
-#     result_dict = manager.dict()
-#     result_dict[Config.CANCELLED_JOBS_KEY_NAME] = set()
-#     return result_dict
-#
-#
-# @pytest.fixture()
-# def queue():
-#     return multiprocessing.Queue()
-#
-#
-# class Model:
-#     def __init__(self):
-#         pass
-#
-#     def predict(self, *args, **kwargs):
-#         return args, kwargs
-#
-#
-# def load_model():
-#     return Model()
-#
-#
-# def bad_load_model():
-#     raise Exception("Failed")
-#
-#
-# def score_model(model, *args, **kwargs):
-#     return model.predict(*args, **kwargs)
-#
-#
-# def bad_score_model():
-#     raise Exception("Failed")
-#
-#
-# def test_providing_faulty_load_model_callable(result_dict, queue):
-#     worker = MLWorker(result_dict, queue, bad_load_model, score_model)
-#     worker.start()
-#
-#     time.sleep(1.0)
-#
-#     assert not worker.is_alive()
-#     assert worker.exitcode == Config.USER_CODE_FAILED_EXIT_CODE
-#
-#     worker.terminate()
-#     worker.join()
-#
-#
-# def test_providing_faulty_score_model_callable(result_dict, queue):
-#     worker = MLWorker(result_dict, queue, load_model, bad_score_model)
-#     worker.start()
-#
-#     queue.put(JobMessage(message_id=get_new_job_id(), args=[1]))
-#
-#     time.sleep(1.0)
-#
-#     assert not worker.is_alive()
-#     assert worker.exitcode == Config.USER_CODE_FAILED_EXIT_CODE
-#
-#     worker.terminate()
-#     worker.join()
-#
-#
-# def test_worker(result_dict, queue):
-#     message_id = get_new_job_id()
-#
-#     worker = MLWorker(result_dict, queue, load_model, score_model)
-#     worker.start()
-#
-#     queue.put(JobMessage(message_id=message_id, args=[2], kwargs={"test": 3}))
-#
-#     time.sleep(1.0)
-#
-#     assert message_id in result_dict
-#     assert result_dict[message_id] == ((2,), {"test": 3})
-#
-#     worker.terminate()
-#     worker.join()
-#
-#
-# def long_scoring(model, *args, **kwargs):
-#     time.sleep(1.0)
-#     return model.predict(*args, **kwargs)
-#
-#
-# def test_cancelling_job(result_dict, queue):
-#     worker = MLWorker(result_dict, queue, load_model, long_scoring)
-#     worker.start()
-#
-#     job_1_id = get_new_job_id()
-#     job_2_id = get_new_job_id()
-#     queue.put(JobMessage(message_id=job_1_id, args=[1]))
-#     queue.put(JobMessage(message_id=job_2_id, args=[2]))
-#
-#     # Cancel the job
-#     result_dict[Config.CANCELLED_JOBS_KEY_NAME].add(job_2_id)
-#
-#     time.sleep(2.0)
-#
-#     assert job_1_id in result_dict
-#
-#     # Make sure the worker didn't process the job 2 and cleaned its id from
-#     # the result dict
-#     assert job_2_id not in result_dict
-#     assert job_2_id not in result_dict[Config.CANCELLED_JOBS_KEY_NAME]
-#
-#     worker.terminate()
-#     worker.join()
+import multiprocessing
+from functools import partial
+import time
+
+import pytest
+
+from ml_pool.worker import MLWorker
+from ml_pool.utils import get_new_job_id
+from ml_pool.messages import JobMessage
+from ml_pool.config import Config
+
+
+@pytest.fixture(scope="module")
+def manager():
+    return multiprocessing.Manager()
+
+
+@pytest.fixture(scope="function")
+def queue():
+    return multiprocessing.Queue()
+
+
+@pytest.fixture(scope="module")
+def result_dict(manager):
+    return manager.dict()
+
+
+@pytest.fixture(scope="module")
+def cancel_dict(manager):
+    return manager.dict()
+
+
+class Model:
+    def __init__(self, name: str):
+        self.name = name
+
+    def predict(self, *args, **kwargs):
+        return args, kwargs
+
+
+def good_load_model(name: str) -> Model:
+    return Model(name)
+
+
+def bad_load_model(name: str) -> Model:
+    raise Exception("Failed")
+
+
+def bad_load_returns_nothing():
+    return
+
+
+def good_score_model(model, *args, **kwargs):
+    return model.predict(*args, **kwargs)
+
+
+def good_score_model_slow(model, *args, **kwargs):
+    time.sleep(1.0)
+    return model.predict(*args, **kwargs)
+
+
+def bad_score_model(model, *args, **kwargs):
+    raise Exception("Failed")
+
+
+# ----------------------------------- tests -----------------------------------
+
+
+def test_worker_good_load_good_score(queue, result_dict, cancel_dict):
+    worker = MLWorker(
+        queue,
+        result_dict,
+        cancel_dict,
+        ml_models={"model_1": partial(good_load_model, "name1")},
+    )
+    worker.start()
+
+    assert "model_1" in worker._ml_models
+
+    job_id = get_new_job_id()
+    queue.put(
+        JobMessage(job_id, good_score_model, "model_1", (1,), {"test": 1})
+    )
+
+    time.sleep(0.5)
+
+    assert job_id in result_dict
+    assert result_dict[job_id][1] == ((1,), {"test": 1})
+
+    worker.terminate()
+    worker.join()
+
+
+def test_worker_good_load_good_score_multiple(queue, result_dict, cancel_dict):
+    worker = MLWorker(
+        queue,
+        result_dict,
+        cancel_dict,
+        ml_models={
+            "model_1": partial(good_load_model, "name1"),
+            "model_2": partial(good_load_model, "name2"),
+        },
+    )
+    worker.start()
+
+    job_ids = []
+    for i in range(10):
+        job_id = get_new_job_id()
+        queue.put(
+            JobMessage(job_id, good_score_model, "model_1", (i,), {"test": i})
+        )
+        job_ids.append(job_id)
+
+    time.sleep(2.0)
+
+    for i, job_id in enumerate(job_ids):
+        assert job_id in result_dict
+        assert result_dict[job_id][1] == ((i,), {"test": i})
+
+    worker.terminate()
+    worker.join()
+
+
+def test_worker_good_load_bad_score(queue, result_dict, cancel_dict):
+    worker = MLWorker(
+        queue,
+        result_dict,
+        cancel_dict,
+        ml_models={"model_1": partial(good_load_model, "name1")},
+    )
+    worker.start()
+
+    job_id = get_new_job_id()
+    queue.put(JobMessage(job_id, bad_score_model, "model_1", (1,)))
+
+    time.sleep(0.5)
+
+    assert job_id not in result_dict
+    assert worker.exitcode == Config.SCORE_MODEL_CALLABLE_FAILED
+    assert not worker.is_alive()
+
+    worker.terminate()
+    worker.join()
+
+
+def test_worker_bad_load(queue, result_dict, cancel_dict):
+    worker = MLWorker(
+        queue,
+        result_dict,
+        cancel_dict,
+        ml_models={"model_1": partial(bad_load_model, "name1")},
+    )
+    worker.start()
+
+    time.sleep(0.5)
+
+    assert not worker.is_alive()
+    assert worker.exitcode == Config.LOAD_MODEL_CALLABLE_FAILED
+
+    worker.terminate()
+    worker.join()
+
+
+def test_worker_bad_load_returns_nothing(queue, result_dict, cancel_dict):
+    worker = MLWorker(
+        queue,
+        result_dict,
+        cancel_dict,
+        ml_models={"model_1": bad_load_returns_nothing},
+    )
+    worker.start()
+
+    time.sleep(0.5)
+
+    assert not worker.is_alive()
+    assert worker.exitcode == Config.LOAD_MODEL_CALLABLE_RETURNED_NOTHING
+
+    worker.terminate()
+    worker.join()
+
+
+def test_worker_cancelling_job(queue, result_dict, cancel_dict):
+    worker = MLWorker(
+        queue,
+        result_dict,
+        cancel_dict,
+        ml_models={"model_1": partial(good_load_model, "name1")},
+    )
+    worker.start()
+
+    job_id = get_new_job_id()
+    queue.put(
+        JobMessage(
+            job_id, good_score_model_slow, "model_1", kwargs={"test": 1}
+        )
+    )
+    job_id_2 = get_new_job_id()
+    queue.put(
+        JobMessage(
+            job_id_2, good_score_model_slow, "model_1", kwargs={"test": 1}
+        )
+    )
+
+    time.sleep(0.3)
+    cancel_dict[job_id_2] = None
+
+    assert job_id_2 not in result_dict
+    time.sleep(2.0)
+    assert job_id_2 not in cancel_dict
+
+    worker.terminate()
+    worker.join()

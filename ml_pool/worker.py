@@ -39,7 +39,6 @@ class MLWorker(Process):
         self._result_dict: ResultDict = result_dict
         self._cancelled_dict: CancelledDict = cancelled_dict
         self._ml_models = ml_models
-        self.error_message = None
 
     def run(self) -> None:
         pid = os.getpid()
@@ -64,24 +63,17 @@ class MLWorker(Process):
                 )
                 continue
 
-            if model_name not in loaded_ml_models:
-                self._fail_gracefully(
-                    f"Model {model_name} wasn't loaded by the MLWorker, "
-                    f"cannot pass it to callable {func.__name__}",
-                    exit_code=Config.UNKNOWN_ML_MODEL_REQUESTED,
-                )
-
             try:
                 result = func(
                     loaded_ml_models[model_name], *args, **kwargs
                 )  # type: ignore
             except Exception as e:
-                self._fail_gracefully(
+                logger.error(
                     f"User provided callable {func.__name__} called with "
-                    f"model {model_name}, args {args}, kwargs {kwargs} failed"
+                    f"model {model_name}, args {args}, kwargs {kwargs} failed "
                     f"with error: {e}",
-                    exit_code=Config.SCORE_MODEL_CALLABLE_FAILED,
                 )
+                sys.exit(Config.SCORE_MODEL_CALLABLE_FAILED)
 
             logger.debug(
                 f"MLWorker {pid} ran callable {func.__name__} with model "
@@ -90,29 +82,26 @@ class MLWorker(Process):
             )
             self._result_dict[job_id] = (datetime.datetime.now(), result)
 
-    def _load_models(self, ml_models: MLModels) -> LoadedMLModels:
+    @staticmethod
+    def _load_models(ml_models: MLModels) -> LoadedMLModels:
         loaded_models = {}
-
         for model_name, load_model_callable in ml_models.items():
             try:
                 loaded_model = load_model_callable()  # type: ignore
             except Exception as e:
-                self._fail_gracefully(
+                logger.error(
                     f"Failed while loading model {model_name} using "
-                    f"{load_model_callable.__name__} callable. Error: {e}",
-                    exit_code=Config.LOAD_MODEL_CALLABLE_FAILED,
+                    f"{load_model_callable} callable. Error: {e}"
                 )
+                sys.exit(Config.LOAD_MODEL_CALLABLE_FAILED)
+
             if not loaded_model:  # noqa
-                self._fail_gracefully(
-                    f"Provided callable {load_model_callable.__name__} to "
-                    f"load model {model_name} didn't return a valid object",
-                    exit_code=Config.LOAD_MODEL_CALLABLE_RETURNED_NOTHING,
+                logger.error(
+                    f"Provided callable {load_model_callable} to "
+                    f"load model {model_name} didn't return a valid object. "
+                    f"Expected value is a single model instance",
                 )
+                sys.exit(Config.LOAD_MODEL_CALLABLE_RETURNED_NOTHING)
+
             loaded_models[model_name] = loaded_model
-
         return loaded_models
-
-    def _fail_gracefully(self, error_message: str, exit_code: int) -> None:
-        logger.error(error_message)
-        self.error_message = error_message  # type: ignore
-        sys.exit(exit_code)

@@ -24,7 +24,6 @@ class Config:
     LOAD_MODEL_CALLABLE_FAILED = 222
     LOAD_MODEL_CALLABLE_RETURNED_NOTHING = 223
     SCORE_MODEL_CALLABLE_FAILED = 224
-    UNKNOWN_ML_MODEL_REQUESTED = 225
     CUSTOM_EXIT_CODES_MAPPING = {
         LOAD_MODEL_CALLABLE_FAILED: "Failed to load model",
         LOAD_MODEL_CALLABLE_RETURNED_NOTHING: (
@@ -32,8 +31,5 @@ class Config:
         ),
         SCORE_MODEL_CALLABLE_FAILED: (
             "Failed while scoring using provided callable"
-        ),
-        UNKNOWN_ML_MODEL_REQUESTED: (
-            "Unknown (not loaded) model requested for scoring"
         ),
     }

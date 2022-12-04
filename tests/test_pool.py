@@ -309,5 +309,3 @@ def test_pool_monitorigng_thread_restarts_failed_workers():
 
 
 # TODO: Test exit codes
-# Test pool bad score callable (throws exception)
-# etc
