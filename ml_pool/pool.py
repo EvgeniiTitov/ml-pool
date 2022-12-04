@@ -1,4 +1,4 @@
-from typing import Any, Optional, List
+from typing import Any, Optional, List, Tuple
 from multiprocessing import Queue, Manager
 import threading
 import time
@@ -240,7 +240,7 @@ class MLPool:
 
     def _start_background_threads(
         self,
-    ) -> tuple[List[threading.Thread], List[threading.Event]]:
+    ) -> Tuple[List[threading.Thread], List[threading.Event]]:
         """
         Starts threads that do some background tasks
         """
