@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, List
 from multiprocessing import Queue, Manager
 import threading
 import time
@@ -64,7 +64,7 @@ class MLPool:
         self._cancel_dict: CancelledDict = self._manager.dict()
         self._scheduled_job_ids: set[uuid.UUID] = set()
 
-        self._workers: list[MLWorker] = self._start_workers(nb_workers)
+        self._workers: List[MLWorker] = self._start_workers(nb_workers)
         (
             self._background_threads,
             self._stop_events,
@@ -176,7 +176,7 @@ class MLPool:
         self._cancel_job(job_id)
         logger.debug(f"Cancelled job {job_id}")
 
-    def _start_workers(self, nb_workers: int) -> list[MLWorker]:
+    def _start_workers(self, nb_workers: int) -> List[MLWorker]:
         """
         Start MLWorkers running on other cores which will run the user provided
         code
@@ -240,7 +240,7 @@ class MLPool:
 
     def _start_background_threads(
         self,
-    ) -> tuple[list[threading.Thread], list[threading.Event]]:
+    ) -> tuple[List[threading.Thread], List[threading.Event]]:
         """
         Starts threads that do some background tasks
         """
