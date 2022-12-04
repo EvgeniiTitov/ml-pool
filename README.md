@@ -1,24 +1,20 @@
-`Disclamer: THIS IS A NICHE USE CASE AND IS NOT A PROPER WAY TO SOLVE SUCH A PROBLEM`
-
----
-
 ### Use case / why
 
 
 Cloud Run as of November 2022 does not support GPU machines. Assuming we have a model, 
-which is CPU hungry and takes time to score, which we want to serve through an API while:
+which is CPU hungry and takes time to score, which we want to serve through an API/web sockets while:
 
-- keeping overall application complexity low (no dedicated service to serve the model)
+- keeping overall application complexity low (no dedicated service to serve ML models)
 - minimising latency
 - maximasing throughput (the number of requests a single Cloud Run instance can handle)
 
-How do we do it?
 
-A typical simple API serving a ML model instantiates the model right in the main process, which
-results in the model consuming its memory and CPU cycles for scoring, which directly affects the API
-performance. It would be neat to unload the model scoring / feature engineering bit to dedicated cores.
-This would let us:
-- use CPU resources more efficiently (loading more cores instead of a single one)
+A typical simple API serving ML model(s) instantiates a model right in the main process, which
+results in the model consuming the process's memory and CPU cycles for scoring. This directly 
+affects the API performance. Ideally, we want to move the model scoring / feature engineering bit 
+to dedicated cores. This would let us:
+
+- use CPU resources more efficiently (loading more cores instead of a single one provided that the container has 1+ cores at its disposal)
 - avoid hurting API performance by moving model scoring / feature engineering bits that require memory and CPU away from the API process
 - decrease latency
 - increase throughput 
@@ -138,15 +134,10 @@ ml_pool - 143 seconds (11 workers) (7 requests/s)
 
 ### TODO:
 
-- WIP Result dict needs to be cleaned if the caller never consumes the result (TTL for the result? Another monitor to check the scheduled tasks)
 
-- WIP Ability to provide multiple objects (models to load). Like a KV with model name and a callable to load it.
+- If a worker dies, but it was processing something, then the caller will infinitely wait for the result!
 
-- WIP When scheduling model scoring, provide the function for scoring (instead of passing it in the constructor), args and
-the loaded model to use (as the first parameter)
-
-- If a worker dies, but it was processing something, then the caller will infinitely wait
-for the result!
+- DO NOT termiante workers, might current the queue and shared dict, try stopping gracefully, doesit join within timeout, terminate
 
 - What if user provided callable relies on other objects/clients such as BigQuery client?
 
@@ -161,9 +152,7 @@ for the result!
   - Test if a worker just fails (raise manually) - hangs the monitor thread
 
   - Monitoring thread runs too rarely, workers fail, but new jobs get accepted as the flag doesnt get switched cuz the thread is sleeping...
-      - Create a function that checks if workers healthy? Could be reused by the monitor + before
-    adding new jobs.
-
+  
 - Test with your WS project
 
 

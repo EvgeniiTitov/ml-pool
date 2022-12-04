@@ -73,7 +73,6 @@ class MLPool:
         self._result_ttl = max(result_ttl, Config.RESULT_TTL)
         self._workers_healthy = True
         self._worker_error_description = ""
-        self._worker_error_message = ""
         self._workers_exit_code = None
 
         self._pool_running = True
@@ -188,6 +187,7 @@ class MLPool:
                 result_dict=self._result_dict,
                 cancelled_dict=self._cancel_dict,
                 ml_models=self._models_to_load,
+                daemon=True
             )
             worker.start()
             workers.append(worker)
@@ -252,6 +252,7 @@ class MLPool:
             target=self._monitor_workers,
             args=(workers_monitor_event, Config.MONITOR_THREAD_FREQUENCY),
             name="Workers health monitor",
+            daemon=True
         )
         workers_monitor_thread.start()
         threads.append(workers_monitor_thread)
@@ -263,6 +264,7 @@ class MLPool:
             target=self._clean_result_dict,
             args=(shared_dict_cleaner_event, Config.CLEANER_THREAD_FREQUENCY),
             name="Shared dict cleaner",
+            daemon=True
         )
         shared_dict_cleaner_thread.start()
         threads.append(shared_dict_cleaner_thread)
@@ -299,9 +301,6 @@ class MLPool:
                     and worker.exitcode in Config.CUSTOM_EXIT_CODES_MAPPING
                 ):
                     self._workers_healthy = False
-                    self._worker_error_message = (
-                        worker.error_message  # type: ignore
-                    )
                     self._worker_error_description = (
                         Config.CUSTOM_EXIT_CODES_MAPPING[worker.exitcode]
                     )
@@ -353,8 +352,7 @@ class MLPool:
 
             self.shutdown()
             raise MLWorkerFailedBecauseOfUserProvidedCodeError(
-                f"Error description {self._worker_error_description}. "
-                f"Error message: {self._worker_error_message}"
+                f"Error description {self._worker_error_description}"
             )
 
     @staticmethod
@@ -369,9 +367,7 @@ class MLPool:
                     f"Callable to load model {model_name} is not a callable"
                 )
 
-    def shutdown(self) -> None:
-        # TODO: Joins need timeout
-
+    def shutdown(self, timeout: float = Config.SHUTDOWN_JOIN_TIMEOUT) -> None:
         if not self._pool_running:
             return
 
@@ -380,17 +376,17 @@ class MLPool:
         for event in self._stop_events:
             event.set()
         for thread in self._background_threads:
-            thread.join()
+            thread.join(timeout=timeout)
 
         # Stop MLWorkers
         for worker in self._workers:
             worker.terminate()
         for worker in self._workers:
-            worker.join()
+            worker.join(timeout=timeout)
         logger.debug("MLWorkers stopped")
 
         self._manager.shutdown()
-        self._manager.join()
+        self._manager.join(timeout=timeout)
         logger.debug("Manager process stopped")
 
         self._pool_running = False

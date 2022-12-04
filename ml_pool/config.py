@@ -19,6 +19,7 @@ class Config:
     # Background threads
     MONITOR_THREAD_FREQUENCY = 0.1
     CLEANER_THREAD_FREQUENCY = 10.0
+    SHUTDOWN_JOIN_TIMEOUT = 5.0
 
     # Worker errors
     LOAD_MODEL_CALLABLE_FAILED = 222
