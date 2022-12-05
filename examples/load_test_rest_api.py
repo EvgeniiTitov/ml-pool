@@ -1,4 +1,5 @@
 import sys
+import random
 
 sys.path.append("..")
 
@@ -10,12 +11,21 @@ from ml_pool.utils import timer
 
 URL = "http://127.0.0.1:8000/iris"
 CLIENTS = 20
-REQUESTS_PER_CLIENT = 20
+REQUESTS_PER_CLIENT = 10
+
+FEATURES = [
+    [3.0, 2.0, 1.0, 0.2],
+    [4.9, 2.2, 3.8, 1.1],
+    [5.3, 2.5, 4.6, 1.9],
+    [6.2, 2.2, 4.5, 1.5],
+]
 
 
-def client(index, features):
+def client(index) -> None:
     for i in range(REQUESTS_PER_CLIENT):
-        response = requests.post(url=URL, json={"features": features})
+        response = requests.post(
+            url=URL, json={"features": random.choice(FEATURES)}
+        )
         print(
             f"Client {index} got {i} / {REQUESTS_PER_CLIENT} "
             f"response {response.json()}"
@@ -25,8 +35,7 @@ def client(index, features):
 @timer
 def main():
     threads = [
-        threading.Thread(target=client, args=(i, [6.2, 2.2, 4.5, 1.5]))
-        for i in range(CLIENTS)
+        threading.Thread(target=client, args=(i,)) for i in range(CLIENTS)
     ]
     for thread in threads:
         thread.start()

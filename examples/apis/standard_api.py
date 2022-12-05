@@ -4,37 +4,17 @@ sys.path.append("../..")
 
 from fastapi import FastAPI
 import pydantic
-import xgboost
-import numpy as np
 import uvicorn
 
 from ml_pool.logger import get_logger
+from examples.models import HungryIris
 
 
 logger = get_logger("api")
 
 app = FastAPI()
 
-
-def load_model(model_path: str):
-    model = xgboost.Booster()
-    model.load_model(model_path)
-    logger.info("Model loaded")
-    return model
-
-
-model = load_model("iris_xgb.json")
-
-
-def score_model(model, features):
-    # Imitates a heavy model that takes time to score + feature engineering
-    # could also be unloaded to the worker pool
-    sum_ = 0
-    for i in range(10_000_000):
-        sum_ += 1
-
-    features = xgboost.DMatrix([features])
-    return np.argmax(model.predict(features))
+model = HungryIris("../models/iris_xgb.json")
 
 
 class Request(pydantic.BaseModel):
@@ -53,7 +33,7 @@ def health_check():
 @app.post("/iris")
 def score(request: Request) -> Response:
     logger.info(f"Got request for features: {request}")
-    result = score_model(model, request.features)
+    result = model.predict(request.features)
     return Response(prediction=result)
 
 

@@ -1,0 +1,11 @@
+Test 1:
+
+20 clients, 10 request / client, HungryIris (1 sec burning)
+
+ML_POOL: 2 workers - 116 sec
+ML_POOL: 4 workers - 74 sec
+ML_POOL: 11 workers - 50 sec
+SYNC: 222 sec
+
+
+------------------------------------------------------------------------------

@@ -324,8 +324,8 @@ class MLPool:
 
         while not stop_event.is_set():
             time.sleep(sleep_time)
-            for job_id in self._scheduled_job_ids.copy():
-                processed_at, _ = self._result_dict[job_id]
+            for job_id, value in self._result_dict.items():
+                processed_at, _ = value
                 if (
                     datetime.datetime.now() - processed_at
                 ).total_seconds() > self._result_ttl:

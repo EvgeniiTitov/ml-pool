@@ -2,16 +2,13 @@ import sys
 
 sys.path.append("../..")
 
-from functools import partial
-
 from fastapi import FastAPI
 import pydantic
-import xgboost
-import numpy as np
 import uvicorn
 
 from ml_pool import MLPool
 from ml_pool.logger import get_logger
+from examples.models import HungryIris
 
 
 logger = get_logger("api")
@@ -19,24 +16,15 @@ logger = get_logger("api")
 app = FastAPI()
 
 
-# ------------------ user provided callables to load and score ---------------
+# ----------------- functions user is to provide -----------------------------
 
 
-def load_model(model_path: str):
-    model = xgboost.Booster()
-    model.load_model(model_path)
-    return model
+def load_model() -> HungryIris:
+    return HungryIris("../models/iris_xgb.json")
 
 
-def score_model(model, features):
-    # Imitates a heavy model that takes time to score + feature engineering
-    # could also be unloaded to the worker pool
-    sum_ = 0
-    for i in range(10_000_000):
-        sum_ += 1
-
-    features = xgboost.DMatrix([features])
-    return np.argmax(model.predict(features))
+def score_model(model: HungryIris, features):
+    return model.predict(features)
 
 
 # ------------------------------- schemas ------------------------------------
@@ -64,15 +52,17 @@ def score(request: Request) -> Response:
 
     # UNLOAD DATA CRUNCHING CPU HEAVY MODEL SCORING TO THE POOL WITHOUT
     # OVERLOADING THE API PROCESS
-    job_id = pool.schedule_scoring(kwargs={"features": request.features})
-    result = pool.get_result(job_id, wait_if_unavailable=True)
-
+    job_id = pool.create_job(
+        score_model_function=score_model,
+        model_name="hungry_iris",
+        kwargs={"features": request.features},
+    )
+    result = pool.get_result(job_id)
     return Response(prediction=result)
 
 
 if __name__ == "__main__":
     with MLPool(
-        load_model_func=partial(load_model, "iris_xgb.json"),
-        score_model_func=score_model,
+        models_to_load={"hungry_iris": load_model}, nb_workers=2
     ) as pool:
         uvicorn.run(app, workers=1)
