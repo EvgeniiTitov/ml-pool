@@ -16,7 +16,7 @@ logger = get_logger("api")
 app = FastAPI()
 
 
-# ----------------- functions user is to provide -----------------------------
+# --------------------- functions a user to provide --------------------------
 
 
 def load_model() -> HungryIris:
@@ -46,6 +46,27 @@ def health_check():
     return {"Message": "Up and running"}
 
 
+# TODO: Report pull state
+# @app.get("/report_curr_state")
+# def report_state():
+#     state = {
+#         "result_dict": pool._result_dict.keys(),
+#         "cancel_dict": pool._cancel_dict.keys(),
+#         "scheduled_jobs": pool._scheduled_job_ids
+#     }
+#     return state
+
+
+@app.post("/create_task")
+def create_task(request: Request):
+    logger.info(f"Got request for features: {request}")
+    pool.create_job(
+        score_model_function=score_model,
+        model_name="hungry_iris",
+        kwargs={"features": request.features},
+    )
+
+
 @app.post("/iris")
 def score(request: Request) -> Response:
     logger.info(f"Got request for features: {request}")
@@ -62,7 +83,5 @@ def score(request: Request) -> Response:
 
 
 if __name__ == "__main__":
-    with MLPool(
-        models_to_load={"hungry_iris": load_model}, nb_workers=2
-    ) as pool:
+    with MLPool(models_to_load={"hungry_iris": load_model}) as pool:
         uvicorn.run(app, workers=1)

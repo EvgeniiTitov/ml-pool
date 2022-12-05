@@ -4,6 +4,7 @@ Test 1:
 
 ML_POOL: 2 workers - 116 sec
 ML_POOL: 4 workers - 74 sec
+ML_POOL: 6 workers - 70 sec
 ML_POOL: 11 workers - 50 sec
 SYNC: 222 sec
 

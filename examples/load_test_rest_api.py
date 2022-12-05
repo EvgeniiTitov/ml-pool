@@ -9,9 +9,10 @@ import threading
 from ml_pool.utils import timer
 
 
-URL = "http://127.0.0.1:8000/iris"
-CLIENTS = 20
-REQUESTS_PER_CLIENT = 10
+PATH = "iris"
+URL = f"http://127.0.0.1:8000/{PATH}"
+CLIENTS = 25
+REQUESTS_PER_CLIENT = 1000
 
 FEATURES = [
     [3.0, 2.0, 1.0, 0.2],
@@ -24,7 +25,7 @@ FEATURES = [
 def client(index) -> None:
     for i in range(REQUESTS_PER_CLIENT):
         response = requests.post(
-            url=URL, json={"features": random.choice(FEATURES)}
+            url=URL, json={"features": random.choice(FEATURES)}, timeout=20.0
         )
         print(
             f"Client {index} got {i} / {REQUESTS_PER_CLIENT} "

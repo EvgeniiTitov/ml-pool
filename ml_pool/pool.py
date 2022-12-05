@@ -305,7 +305,7 @@ class MLPool:
                 healthy_workers.extend(
                     self._start_workers(self._nb_workers - total_healthy)
                 )
-            self._workers[:] = healthy_workers
+            self._workers = healthy_workers
 
         logger.debug("Workers monitoring thread stopped")
 
@@ -324,6 +324,8 @@ class MLPool:
 
         while not stop_event.is_set():
             time.sleep(sleep_time)
+
+            results_pending = 0
             for job_id, value in self._result_dict.items():
                 processed_at, _ = value
                 if (
@@ -331,7 +333,9 @@ class MLPool:
                 ).total_seconds() > self._result_ttl:
                     self._retrieve_job_result(job_id)
                     logger.debug(f"Job {job_id} expired, cleaned")
+                results_pending += 1
 
+            logger.debug(f"Cleaning ran, pending results {results_pending}")
         logger.debug("Result dict cleaner thread stopped")
 
     def _ensure_workers_healthy(self, message_if_unhealthy: str = "") -> None:
