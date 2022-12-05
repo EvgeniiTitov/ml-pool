@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.7", "3.8", "3.9", "3.10"]
+        python-version: [3.8", "3.9", "3.10"]
 
     steps:
       - uses: actions/checkout@v3
@@ -21,13 +21,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest
       - name: Run tests
-        run: pytest tests -v
+        run: make test
 
   Test-Windows:
     runs-on: windows-latest
     strategy:
       matrix:
-        python-version: ["3.7", "3.8", "3.9", "3.10"]
+        python-version: [3.8", "3.9", "3.10"]
 
     steps:
       - uses: actions/checkout@v3
@@ -40,4 +40,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest
       - name: Run tests
-        run: pytest tests -v
+        run: make test
+
+  Run-Linters:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.9.15
+      - name: Install dependencies
+        run: |
+          make install-req
+          make install-pc
+      - name: Run linters and tests
+        run: make pc

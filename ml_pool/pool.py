@@ -187,7 +187,7 @@ class MLPool:
                 result_dict=self._result_dict,
                 cancelled_dict=self._cancel_dict,
                 ml_models=self._models_to_load,
-                daemon=True
+                daemon=True,
             )
             worker.start()
             workers.append(worker)
@@ -252,7 +252,7 @@ class MLPool:
             target=self._monitor_workers,
             args=(workers_monitor_event, Config.MONITOR_THREAD_FREQUENCY),
             name="Workers health monitor",
-            daemon=True
+            daemon=True,
         )
         workers_monitor_thread.start()
         threads.append(workers_monitor_thread)
@@ -263,8 +263,8 @@ class MLPool:
         shared_dict_cleaner_thread = threading.Thread(
             target=self._clean_result_dict,
             args=(shared_dict_cleaner_event, Config.CLEANER_THREAD_FREQUENCY),
-            name="Shared dict cleaner",
-            daemon=True
+            name="Result dict cleaner",
+            daemon=True,
         )
         shared_dict_cleaner_thread.start()
         threads.append(shared_dict_cleaner_thread)
@@ -328,6 +328,7 @@ class MLPool:
         they keep consuming memory
         """
         logger.debug("Result dict cleaner thread started")
+        time.sleep(2.0)
 
         while not stop_event.is_set():
             time.sleep(sleep_time)

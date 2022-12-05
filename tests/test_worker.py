@@ -10,9 +10,11 @@ from ml_pool.messages import JobMessage
 from ml_pool.config import Config
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def manager():
-    return multiprocessing.Manager()
+    manager = multiprocessing.Manager()
+    yield manager
+    manager.shutdown()
 
 
 @pytest.fixture(scope="function")
@@ -20,12 +22,12 @@ def queue():
     return multiprocessing.Queue()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def result_dict(manager):
     return manager.dict()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def cancel_dict(manager):
     return manager.dict()
 
@@ -209,4 +211,21 @@ def test_worker_cancelling_job(queue, result_dict, cancel_dict):
     assert job_id_2 not in cancel_dict
 
     worker.terminate()
+    worker.join()
+
+
+def test_worker_graceful_stopping(queue, result_dict, cancel_dict):
+    worker = MLWorker(
+        queue,
+        result_dict,
+        cancel_dict,
+        ml_models={"model_1": partial(good_load_model, "name1")},
+    )
+    worker.start()
+    worker.initiate_stop()
+
+    time.sleep(1.0)
+    assert not worker.is_alive()
+    assert worker.exitcode == 0
+
     worker.join()

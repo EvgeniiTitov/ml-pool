@@ -1,4 +1,5 @@
-from multiprocessing import Process, Queue
+from multiprocessing import Process, Queue, Event
+from queue import Empty
 import sys
 import os
 import datetime
@@ -25,6 +26,8 @@ class MLWorker(Process):
     TBA
     """
 
+    GET_MESSAGE_TIMEOUT = 0.1
+
     def __init__(
         self,
         message_queue: Queue,
@@ -39,6 +42,7 @@ class MLWorker(Process):
         self._result_dict: ResultDict = result_dict
         self._cancelled_dict: CancelledDict = cancelled_dict
         self._ml_models = ml_models
+        self._stop_event = Event()
 
     def run(self) -> None:
         pid = os.getpid()
@@ -47,8 +51,14 @@ class MLWorker(Process):
         logger.info(
             f"MLWorker {pid} loaded models: {list(self._ml_models.keys())}"
         )
-        while True:
-            message: JobMessage = self._message_queue.get()
+        while not self._stop_event.is_set():
+            try:
+                message: JobMessage = self._message_queue.get(
+                    timeout=MLWorker.GET_MESSAGE_TIMEOUT
+                )
+            except Empty:
+                continue
+
             job_id = message.message_id
             func = message.user_func
             model_name = message.model_name
@@ -81,6 +91,11 @@ class MLWorker(Process):
                 f"Result: {result}"  # noqa
             )
             self._result_dict[job_id] = (datetime.datetime.now(), result)
+
+        logger.debug(f"MLWorker {pid} was stopped gracefully")
+
+    def initiate_stop(self):
+        self._stop_event.set()
 
     @staticmethod
     def _load_models(ml_models: MLModels) -> LoadedMLModels:

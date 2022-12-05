@@ -82,7 +82,7 @@ def faulty_score_model(model, *args, **kwargs):
 # ---------------------------------- tests -----------------------------------
 
 
-def test_good_load_good_model():
+def test_pool_good_load_good_model():
     with MLPool(
         models_to_load={
             "return_args_model": partial(load_good_model_one, "filepath_1"),
@@ -93,7 +93,7 @@ def test_good_load_good_model():
         pass
 
 
-def test_bad_load_good_model():
+def test_pool_bad_load_good_model():
     with pytest.raises(UserProvidedCallableError):
         with MLPool(
             models_to_load={
@@ -289,7 +289,10 @@ def test_pool_expired_results_cleaning():
     Config.CLEANER_THREAD_FREQUENCY = original_cleaning_freq
 
 
-def test_pool_monitorigng_thread_restarts_failed_workers():
+def test_pool_monitoring_thread_restarts_failed_workers():
+    # TODO: Terminating the process might result in it dying with locks
+    #       acquired (queue, shared dicts), which can corrupt the rest of app
+
     total_workers = 3
     with MLPool(
         models_to_load={
@@ -297,12 +300,12 @@ def test_pool_monitorigng_thread_restarts_failed_workers():
         },
         nb_workers=total_workers,
     ) as pool:
-        pool._workers[1].terminate()
+        pool._workers[1].initiate_stop()
         time.sleep(1.0)
         assert len(pool._workers) == total_workers
 
         for worker in pool._workers:
-            worker.terminate()
+            worker.initiate_stop()
 
         time.sleep(1.0)
         assert len(pool._workers) == total_workers
