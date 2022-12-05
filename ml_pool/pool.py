@@ -26,10 +26,6 @@ from ml_pool.exceptions import (
 from ml_pool.utils import get_new_job_id
 
 
-# TODO: Can a worker process just hang? Should I kill it manually every now
-#       and then? (Say after they process N messages or live for M time)
-
-
 __all__ = ["MLPool"]
 
 
@@ -37,10 +33,6 @@ logger = get_logger("ml_pool")
 
 
 class MLPool:
-    """
-    TBA
-    """
-
     def __init__(
         self,
         models_to_load: MLModels,
@@ -332,13 +324,13 @@ class MLPool:
 
         while not stop_event.is_set():
             time.sleep(sleep_time)
-            for key, value in self._result_dict.items():
-                processed_at, _ = value
+            for job_id in self._scheduled_job_ids.copy():
+                processed_at, _ = self._result_dict[job_id]
                 if (
                     datetime.datetime.now() - processed_at
                 ).total_seconds() > self._result_ttl:
-                    self._retrieve_job_result(key)
-                    logger.debug(f"Job {key} expired, cleaned")
+                    self._retrieve_job_result(job_id)
+                    logger.debug(f"Job {job_id} expired, cleaned")
 
         logger.debug("Result dict cleaner thread stopped")
 

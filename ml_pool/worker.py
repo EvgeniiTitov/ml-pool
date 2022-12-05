@@ -22,9 +22,6 @@ logger = get_logger("ml_worker")
 
 
 class MLWorker(Process):
-    """
-    TBA
-    """
 
     GET_MESSAGE_TIMEOUT = 0.1
 

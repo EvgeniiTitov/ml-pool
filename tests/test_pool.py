@@ -7,6 +7,7 @@ from ml_pool import MLPool
 from ml_pool.exceptions import (
     UserProvidedCallableError,
     JobWithSuchIDDoesntExistError,
+    MLWorkerFailedBecauseOfUserProvidedCodeError,
 )
 from ml_pool.utils import get_new_job_id
 from ml_pool.config import Config
@@ -58,6 +59,10 @@ def load_good_model_two(filepath: str) -> GoodModel2:
 
 def load_bad_model_one(filepath: str) -> BadModel:
     return BadModel("one", filepath)
+
+
+def bad_load_returns_nothing():
+    return None
 
 
 def load_bad_model_two(filepath: str) -> BadModel:
@@ -115,7 +120,20 @@ def test_pool_shutdown():
         },
         nb_workers=1,
     )
+    assert pool._pool_running is True
     pool.shutdown()
+    assert pool._pool_running is False
+
+
+def test_pool_shutdown_context():
+    with MLPool(
+        models_to_load={
+            "return_args_model": partial(load_good_model_one, "filepath_1"),
+            "return_kwargs_model": partial(load_good_model_two, "filepath_2"),
+        },
+        nb_workers=1,
+    ) as pool:
+        assert pool._pool_running is True
     assert pool._pool_running is False
 
 
@@ -208,7 +226,7 @@ def test_pool_request_result_for_unknown_id():
             assert result == (1, 2, 3)
 
 
-def heat_death_score(model, *args, **kwargs):
+def slow_score(model, *args, **kwargs):
     time.sleep(10000)
 
 
@@ -222,7 +240,7 @@ def test_pool_avoid_blocking_when_creating_new_job():
         message_queue_size=50,  # Min size allowed
     ) as pool:
         for i in range(51):
-            pool.create_job(heat_death_score, "return_args_model")
+            pool.create_job(slow_score, "return_args_model")
 
         job_id = pool.create_job(
             score_model, "return_args_model", wait_if_full=False
@@ -238,7 +256,7 @@ def test_pool_avoid_blocking_when_result_not_ready():
         },
         nb_workers=1,
     ) as pool:
-        job_id = pool.create_job(heat_death_score, "return_args_model")
+        job_id = pool.create_job(slow_score, "return_args_model")
         result = pool.get_result(job_id, wait_if_unavailable=False)
         assert result is None
 
@@ -311,4 +329,69 @@ def test_pool_monitoring_thread_restarts_failed_workers():
         assert len(pool._workers) == total_workers
 
 
-# TODO: Test exit codes
+def test_pool_load_callable_returns_nothing():
+    with MLPool(
+        models_to_load={"return_kwargs_model": bad_load_returns_nothing},
+        nb_workers=1,
+    ) as pool:
+        time.sleep(0.5)
+
+        assert pool._workers_healthy is False
+        assert (
+            pool._workers_exit_code
+            == Config.LOAD_MODEL_CALLABLE_RETURNED_NOTHING
+        )
+        assert (
+            pool._worker_error_description
+            == Config.CUSTOM_EXIT_CODES_MAPPING[pool._workers_exit_code]
+        )
+
+        with pytest.raises(MLWorkerFailedBecauseOfUserProvidedCodeError):
+            pool.create_job(score_model, "return_kwargs_model")
+
+        assert pool._pool_running == False
+
+
+def test_pool_score_callable_failed():
+    with MLPool(
+        models_to_load={
+            "return_kwargs_model": partial(load_good_model_two, "filepath_2")
+        },
+        nb_workers=1,
+    ) as pool:
+        job_id = pool.create_job(faulty_score_model, "return_kwargs_model")
+
+        time.sleep(0.5)
+
+        assert pool._workers_healthy is False
+        assert pool._workers_exit_code == Config.SCORE_MODEL_CALLABLE_FAILED
+        assert (
+            pool._worker_error_description
+            == Config.CUSTOM_EXIT_CODES_MAPPING[pool._workers_exit_code]
+        )
+
+        with pytest.raises(MLWorkerFailedBecauseOfUserProvidedCodeError):
+            pool.get_result(job_id)
+
+        assert pool._pool_running == False
+
+
+def test_pool_load_model_callable_failed():
+    with MLPool(
+        models_to_load={
+            "return_kwargs_model": partial(faulty_load_model, "filepath_2")
+        },
+        nb_workers=1,
+    ) as pool:
+        time.sleep(0.5)
+
+        assert pool._workers_healthy is False
+        assert pool._workers_exit_code == Config.LOAD_MODEL_CALLABLE_FAILED
+        assert (
+            pool._worker_error_description
+            == Config.CUSTOM_EXIT_CODES_MAPPING[pool._workers_exit_code]
+        )
+        with pytest.raises(MLWorkerFailedBecauseOfUserProvidedCodeError):
+            pool.create_job(score_model, "return_kwargs_model")
+
+        assert pool._pool_running == False
