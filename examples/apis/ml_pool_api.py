@@ -46,17 +46,7 @@ def health_check():
     return {"Message": "Up and running"}
 
 
-# TODO: Report pull state
-# @app.get("/report_curr_state")
-# def report_state():
-#     state = {
-#         "result_dict": pool._result_dict.keys(),
-#         "cancel_dict": pool._cancel_dict.keys(),
-#         "scheduled_jobs": pool._scheduled_job_ids
-#     }
-#     return state
-
-
+# Checking result cleaning thread
 @app.post("/create_task")
 def create_task(request: Request):
     logger.info(f"Got request for features: {request}")
