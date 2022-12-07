@@ -84,7 +84,7 @@ def test_worker_good_load_good_score(queue, result_dict, cancel_dict):
         JobMessage(job_id, good_score_model, "model_1", (1,), {"test": 1})
     )
 
-    time.sleep(0.5)
+    time.sleep(2.0)  # Assumed
 
     assert job_id in result_dict
     assert result_dict[job_id][1] == ((1,), {"test": 1})
@@ -113,7 +113,7 @@ def test_worker_good_load_good_score_multiple(queue, result_dict, cancel_dict):
         )
         job_ids.append(job_id)
 
-    time.sleep(2.0)
+    time.sleep(5.0)  # Assumed
 
     for i, job_id in enumerate(job_ids):
         assert job_id in result_dict
@@ -135,7 +135,7 @@ def test_worker_good_load_bad_score(queue, result_dict, cancel_dict):
     job_id = get_new_job_id()
     queue.put(JobMessage(job_id, bad_score_model, "model_1", (1,)))
 
-    time.sleep(0.5)
+    time.sleep(2.0)
 
     assert job_id not in result_dict
     assert worker.exitcode == Config.SCORE_MODEL_CALLABLE_FAILED
@@ -154,7 +154,7 @@ def test_worker_bad_load(queue, result_dict, cancel_dict):
     )
     worker.start()
 
-    time.sleep(0.5)
+    time.sleep(2.0)
 
     assert not worker.is_alive()
     assert worker.exitcode == Config.LOAD_MODEL_CALLABLE_FAILED
@@ -172,7 +172,7 @@ def test_worker_bad_load_returns_nothing(queue, result_dict, cancel_dict):
     )
     worker.start()
 
-    time.sleep(0.5)
+    time.sleep(2.0)
 
     assert not worker.is_alive()
     assert worker.exitcode == Config.LOAD_MODEL_CALLABLE_RETURNED_NOTHING
@@ -202,12 +202,10 @@ def test_worker_cancelling_job(queue, result_dict, cancel_dict):
             job_id_2, good_score_model_slow, "model_1", kwargs={"test": 1}
         )
     )
-
-    time.sleep(0.3)
     cancel_dict[job_id_2] = None
 
+    time.sleep(3.0)
     assert job_id_2 not in result_dict
-    time.sleep(2.0)
     assert job_id_2 not in cancel_dict
 
     worker.terminate()
