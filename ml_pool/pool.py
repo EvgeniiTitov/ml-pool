@@ -2,7 +2,7 @@ import asyncio
 from typing import Any, Optional, List, Tuple
 import threading
 import time
-from queue import Full
+from queue import Full, Empty
 import uuid
 import datetime
 
@@ -419,6 +419,19 @@ class MLPool:
                     f"Callable to load model {model_name} is not a callable"
                 )
 
+    def _empty_task_queue(self) -> int:
+        """
+        TODO: Windows complains if closing the queue with messages - why?
+        """
+        pending = 0
+        while True:
+            try:
+                _ = self._message_queue.get_nowait()
+            except Empty:
+                break
+            pending += 1
+        return pending
+
     def shutdown(self, timeout: float = Config.SHUTDOWN_JOIN_TIMEOUT) -> None:
         if not self._pool_running:
             return
@@ -436,6 +449,8 @@ class MLPool:
         for worker in self._workers:
             worker.join(timeout=timeout)
         logger.debug("MLWorkers stopped")
+
+        self._empty_task_queue()
 
         self._pool_running = False
         logger.info("MLPool shutdown gracefully")
