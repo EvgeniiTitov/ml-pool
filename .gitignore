@@ -1,6 +1,7 @@
 playground_*.py
 *.pt
 *.json
+*.csv
 
 .idea/
 *.weights

@@ -1,1 +1,1 @@
-from .models import HungryIris
+from .models import HungryIris, HungryDiabetesClassifier
