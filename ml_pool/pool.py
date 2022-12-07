@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, Optional, List, Tuple
 import threading
 import time
@@ -69,6 +70,7 @@ class MLPool:
         time.sleep(1.0)  # Time to spin up workers, load the models etc
         logger.info(f"MLPool initialised. {nb_workers} workers spun up")
 
+    # ---------------------------- Public methods ----------------------------
     def create_job(
         self,
         score_model_function: ScoreModelCallable,
@@ -87,22 +89,7 @@ class MLPool:
         wait_if_full - the pool has certain capacity, if its full and the flag
         is set, the call is blocking. Set to False to avoid blocking the caller
         """
-        # TODO: Check queue size in advance (fails on MacOS lmao)
-        # TODO: Check if pickable (could be sent to the process)
-
-        self._ensure_workers_healthy(
-            message_if_unhealthy="Cannot create new job, workers failed"
-        )
-        if not callable(score_model_function):
-            raise ValueError(
-                "score_model_function must be a callable accepting load model "
-                "(model_name) and args, kwargs as parameters."
-            )
-        if not model_name or model_name not in self._models_to_load:
-            raise ValueError(
-                f"Incorrect model name provided. "
-                f"Available models: {list(self._models_to_load.keys())}"
-            )
+        self._validate_args_for_create_job(score_model_function, model_name)
         job_id = get_new_job_id()
         job = JobMessage(
             message_id=job_id,
@@ -111,8 +98,35 @@ class MLPool:
             args=args,
             kwargs=kwargs,
         )
-        created = self._enqueue_new_job(job, wait_if_full)
-        return job_id if created else None
+        enqueued = self._enqueue_new_job(job, wait_if_full)
+        return job_id if enqueued else None
+
+    async def create_job_async(
+        self,
+        score_model_function: ScoreModelCallable,
+        model_name: str,
+        args: OptionalArgs = None,
+        kwargs: OptionalKwargs = None,
+    ):
+        """
+        Similar to create_job() function, but it doesn't block the event loop
+        if the queue is pool is full.
+        """
+        self._validate_args_for_create_job(score_model_function, model_name)
+        job_id = get_new_job_id()
+        job = JobMessage(
+            message_id=job_id,
+            user_func=score_model_function,
+            model_name=model_name,
+            args=args,
+            kwargs=kwargs,
+        )
+        while True:
+            enqueued = self._enqueue_new_job(job, wait_if_full=False)
+            if not enqueued:
+                await asyncio.sleep(0.005)
+            else:
+                return job_id
 
     def get_result(
         self, job_id: uuid.UUID, *, wait_if_unavailable: bool = True
@@ -143,6 +157,27 @@ class MLPool:
             if job_id in self._result_dict:
                 return self._retrieve_job_result(job_id)
 
+    async def get_result_async(self, job_id: uuid.UUID) -> Any:
+        """
+        Similar to the get_result() function, but it doesn't block the event
+        loop if the result is not available yet
+        """
+        if job_id not in self._scheduled_job_ids:
+            raise JobWithSuchIDDoesntExistError(
+                f"Job with id {job_id} doesn't exist or expired"
+            )
+        if job_id in self._result_dict:
+            return self._retrieve_job_result(job_id)
+
+        # If workers failed, we won't be able to retrieve the result
+        self._ensure_workers_healthy(
+            message_if_unhealthy="Cannot get job results, workers failed"
+        )
+        while True:
+            await asyncio.sleep(0.005)
+            if job_id in self._result_dict:
+                return self._retrieve_job_result(job_id)
+
     def cancel_job(self, job_id: uuid.UUID) -> None:
         """
         Cancel a job
@@ -165,6 +200,7 @@ class MLPool:
         self._cancel_job(job_id)
         logger.debug(f"Cancelled job {job_id}")
 
+    # ------------------------------ Private methods -------------------------
     def _start_workers(self, nb_workers: int) -> List[MLWorker]:
         """
         Start MLWorkers running on other cores which will run the user provided
@@ -227,6 +263,27 @@ class MLPool:
         del self._result_dict[job_id]
         self._scheduled_job_ids.remove(job_id)
         return result
+
+    def _validate_args_for_create_job(
+        self, score_model_function: ScoreModelCallable, model_name: str
+    ) -> None:
+        self._ensure_workers_healthy(
+            message_if_unhealthy="Cannot create new job, workers failed"
+        )
+        if not callable(score_model_function):
+            raise ValueError(
+                "score_model_function must be a callable accepting load model "
+                "(model_name) and args, kwargs as parameters"
+            )
+        if asyncio.iscoroutinefunction(score_model_function):
+            raise ValueError(
+                "score_must_function must be a function, not a coroutine"
+            )
+        if not model_name or model_name not in self._models_to_load:
+            raise ValueError(
+                f"Incorrect model name provided. "
+                f"Available models: {list(self._models_to_load.keys())}"
+            )
 
     def _start_background_threads(
         self,

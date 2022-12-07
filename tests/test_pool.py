@@ -1,5 +1,7 @@
+import asyncio
 import time
 from functools import partial
+import uuid
 
 import pytest
 
@@ -423,3 +425,51 @@ def test_pool_doesnt_accept_new_jobs_if_it_failed():
         time.sleep(0.2)
         with pytest.raises(MLWorkerFailedBecauseOfUserProvidedCodeError):
             pool.create_job(score_model, "return_kwargs_model")
+
+
+@pytest.mark.asyncio
+async def test_pool_async_create_and_get_result():
+    with MLPool(
+        models_to_load={
+            "return_args_model": partial(load_good_model_one, "filepath_1"),
+            "return_kwargs_model": partial(load_good_model_two, "filepath_2"),
+        },
+        nb_workers=1,
+    ) as pool:
+        job_id = await pool.create_job_async(
+            score_model, "return_args_model", (1, 2, 3)
+        )
+        assert isinstance(job_id, uuid.UUID)
+
+        result = await pool.get_result_async(job_id)
+        assert result == (1, 2, 3)
+
+
+async def count(times: int, queue: asyncio.Queue):
+    counter = 0
+    for _ in range(times):
+        counter += 1
+        await asyncio.sleep(0.1)
+    await queue.put(counter)
+
+
+# This is a rubbish test, it doesn't verify what's intended
+@pytest.mark.asyncio
+async def test_get_result_doesnt_block_event_loop():
+    with MLPool(
+        models_to_load={
+            "return_args_model": partial(load_good_model_one, "filepath_1"),
+            "return_kwargs_model": partial(load_good_model_two, "filepath_2"),
+        },
+        nb_workers=1,
+    ) as pool:
+        job_id = await pool.create_job_async(
+            score_model, "return_args_model", (1, 2, 3)
+        )
+        queue = asyncio.Queue()
+        counting_job = asyncio.create_task(count(10, queue))
+        result = await pool.get_result_async(job_id)
+        await counting_job
+        counter = await queue.get()
+        assert result == (1, 2, 3)
+        assert counter == 10
