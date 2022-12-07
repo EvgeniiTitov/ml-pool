@@ -1,4 +1,3 @@
-from multiprocessing import Process, Queue, Event
 from queue import Empty
 import sys
 import os
@@ -13,6 +12,7 @@ from ml_pool.custom_types import (
 )
 from ml_pool.messages import JobMessage
 from ml_pool.config import Config
+from ml_pool.utils import context
 
 
 __all__ = ["MLWorker"]
@@ -21,13 +21,13 @@ __all__ = ["MLWorker"]
 logger = get_logger("ml_worker")
 
 
-class MLWorker(Process):
+class MLWorker(context.Process):  # type: ignore
 
     GET_MESSAGE_TIMEOUT = 0.1
 
     def __init__(
         self,
-        message_queue: Queue,
+        message_queue: context.Queue,  # type: ignore
         result_dict: ResultDict,
         cancelled_dict: CancelledDict,
         ml_models: MLModels,
@@ -35,11 +35,11 @@ class MLWorker(Process):
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
-        self._message_queue: Queue["JobMessage"] = message_queue
+        self._message_queue = message_queue  # type: ignore
         self._result_dict: ResultDict = result_dict
         self._cancelled_dict: CancelledDict = cancelled_dict
         self._ml_models = ml_models
-        self._stop_event = Event()
+        self._stop_event = context.Event()
 
     def run(self) -> None:
         pid = os.getpid()

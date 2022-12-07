@@ -10,6 +10,7 @@ class Config:
 
     # Assuming one core is used for the API to serve requests
     WORKERS_COUNT = multiprocessing.cpu_count() - 1
+    DEFAULT_START_METHOD = "spawn"
 
     # Jobs / results management
     MESSAGE_QUEUE_SIZE = 100

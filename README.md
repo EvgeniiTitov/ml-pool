@@ -47,86 +47,18 @@ within the same container won't help as the bottleneck is CPU hungry model scori
 
 ### How to use / Examples
 
-User is to provide two callables:
 
-1. A callable that loads a model and returns it (ran _once_ by each worker in the pool to load model for inference):
-
-```python
-def load_model(model_path: str):
-    model = xgboost.Booster()
-    model.load_model(model_path)
-    return model
-```
-
-2. A callable that scores the model, that must follow the signature `(model, *args, **kwargs)`:
-
-```python
-def score_model(model, features):
-    features = xgboost.DMatrix([features])
-    return np.argmax(model.predict(features))
-```
-
-Then, the pool could be initialised and used as follows:
-
-```python
-...
-from ml_pool import MLPool
-
-app = FastAPI()
+TBA 
 
 
-class Request(pydantic.BaseModel):
-    features: list[float]
+---
 
 
-class Response(pydantic.BaseModel):
-    prediction: int
+### Known issues:
 
+- If a worker dies, but it was processing something, then the caller will infinitely wait for the result!
 
-@app.post("/predict")
-def score(request: Request) -> Response:
-    # UNLOAD DATA CRUNCHING CPU HEAVY MODEL SCORING TO THE POOL WITHOUT
-    # OVERLOADING THE API PROCESS
-    job_id = pool.schedule_scoring(kwargs={"features": request.features})
-    result = pool.get_result(job_id, wait_if_unavailable=True)
-    return Response(prediction=result)
-
-
-if __name__ == '__main__':
-    with MLPool(
-        load_model_func=partial(load_model, "xgb.json"),
-        score_model_func=score_model,
-        nb_workers=4
-    ) as pool:
-        uvicorn.run(app)
-```
-
-Under the hood, MLPool calls the provided _score_model_func_ with the model object it gets from the 
-_load_model_func_ AND whatever gets passed to .schedule_scoring() method. As a result, 
-the user has full control of what they want to run on the pool.
-
-
---- 
-
-### Benchmarks
-
-- APIs Fake Load: sync (examples/sync_api.py) VS pool based (examples/ml_pool_api.py)
-
-1. 1 uvicorn worker, 10 concurrent clients, 50 requests / client, 10M CPU burn cycles (imitates model scoring)
-
-```
-sync - 338 seconds
-ml_pool - 84 seconds (11 workers)
-```
-
-2. 1 uvicorn worker, 20 concurrent clients, 50 requests / client, 10M CPU burn cycles
-```
-sync - 657 seconds (1.5 requests / s)
-ml_pool - 143 seconds (11 workers) (7 requests/s)
-```
-
-
-- YOLO (TODO)
+- Worker monitoring threads run too rarely, it is possible to create a new job after workers have already failed (the window is ~0.2 sec)
 
 
 ---
@@ -135,11 +67,7 @@ ml_pool - 143 seconds (11 workers) (7 requests/s)
 ### TODO:
 
 
-- If a worker dies, but it was processing something, then the caller will infinitely wait for the result!
-
-- DO NOT termiante workers, might current the queue and shared dict, try stopping gracefully, doesit join within timeout, terminate
-
-- What if user provided callable relies on other objects/clients such as BigQuery client?
+- DO NOT terminate workers, might corrupt the queue and shared dict (dies with locks acquired), try stopping gracefully, doesnt join within timeout, terminate
 
 - Release as a package
 
@@ -147,17 +75,15 @@ ml_pool - 143 seconds (11 workers) (7 requests/s)
 
 - Test the pool with async code (use the flags block_until_scheduled AND wait_if_unavailable)
 
-- Feature: Redesign workers monitoring and raising the exception if they failed
-
-  - Test if a worker just fails (raise manually) - hangs the monitor thread
-
-  - Monitoring thread runs too rarely, workers fail, but new jobs get accepted as the flag doesnt get switched cuz the thread is sleeping...
-  
 - Test with your WS project
 
 
-### Brainstorming (maybe TODO):
+---
+
+### Brainstorming (maybe TODO / extras):
 
 - Check the size of user provided args, kwargs. If they are too large, instead of copying them, put them in a memory store (Apache Arrow, Manager.dict?)
 and pass the object ID through the queue? The worker then needs to check if it gets the object or ID of the object.
 Consider the MPIRE's approach to copy-on-write (https://github.com/Slimmer-AI/mpire) + excellent read by the author (https://towardsdatascience.com/mpire-for-python-multiprocessing-is-really-easy-d2ae7999a3e9)
+
+- What if user provided callable relies on other objects/clients such as BigQuery client?

@@ -1,5 +1,4 @@
 from typing import Any, Optional, List, Tuple
-from multiprocessing import Queue, Manager
 import threading
 import time
 from queue import Full
@@ -23,7 +22,7 @@ from ml_pool.exceptions import (
     JobWithSuchIDDoesntExistError,
     UserProvidedCallableError,
 )
-from ml_pool.utils import get_new_job_id
+from ml_pool.utils import get_new_job_id, context, get_manager
 
 
 __all__ = ["MLPool"]
@@ -45,13 +44,12 @@ class MLPool:
 
         # Create message queue to send jobs to MLWorkers
         self._nb_workers = max(1, nb_workers)
-        self._message_queue: "Queue[JobMessage]" = Queue(
+        self._message_queue = context.Queue(  # type: ignore
             maxsize=max(Config.DEFAULT_MIN_QUEUE_SIZE, message_queue_size)
         )
-
         # Create a manager and shared dictionaries for bidirectional data
         # exchange between the pool and ML Workers
-        self._manager = Manager()
+        self._manager = get_manager()
         self._result_dict: ResultDict = self._manager.dict()
         self._cancel_dict: CancelledDict = self._manager.dict()
         self._scheduled_job_ids: set[uuid.UUID] = set()
@@ -367,8 +365,8 @@ class MLPool:
     def shutdown(self, timeout: float = Config.SHUTDOWN_JOIN_TIMEOUT) -> None:
         if not self._pool_running:
             return
-
         logger.info("Shutting down the pool...")
+
         # Stop background threads
         for event in self._stop_events:
             event.set()
@@ -381,10 +379,6 @@ class MLPool:
         for worker in self._workers:
             worker.join(timeout=timeout)
         logger.debug("MLWorkers stopped")
-
-        self._manager.shutdown()
-        self._manager.join(timeout=timeout)
-        logger.debug("Manager process stopped")
 
         self._pool_running = False
         logger.info("MLPool shutdown gracefully")

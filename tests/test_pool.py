@@ -308,13 +308,11 @@ def test_pool_expired_results_cleaning():
 
 
 def test_pool_monitoring_thread_restarts_failed_workers():
-    # TODO: Terminating the process might result in it dying with locks
-    #       acquired (queue, shared dicts), which can corrupt the rest of app
-
     total_workers = 3
     with MLPool(
         models_to_load={
-            "return_kwargs_model": partial(load_good_model_two, "filepath_2")
+            "return_args_model": partial(load_good_model_one, "filepath_1"),
+            "return_kwargs_model": partial(load_good_model_two, "filepath_2"),
         },
         nb_workers=total_workers,
     ) as pool:
@@ -327,6 +325,23 @@ def test_pool_monitoring_thread_restarts_failed_workers():
 
         time.sleep(1.0)
         assert len(pool._workers) == total_workers
+
+        # Make sure restarted workers can still process tasks
+        job_id_1 = pool.create_job(
+            score_model, "return_args_model", (1, 2, 3), {"four": 4}
+        )
+        job_id_2 = pool.create_job(
+            score_model, "return_kwargs_model", (1, 2, 3), {"four": 4}
+        )
+        ids = [
+            pool.create_job(score_model, "return_args_model", args=(i,))
+            for i in range(5)
+        ]
+        results = [pool.get_result(id) for id in ids]
+
+        assert pool.get_result(job_id_1) == (1, 2, 3)
+        assert pool.get_result(job_id_2) == {"four": 4}
+        assert results == [(0,), (1,), (2,), (3,), (4,)]
 
 
 def test_pool_load_callable_returns_nothing():
@@ -395,3 +410,16 @@ def test_pool_load_model_callable_failed():
             pool.create_job(score_model, "return_kwargs_model")
 
         assert pool._pool_running == False
+
+
+def test_pool_doesnt_accept_new_jobs_if_it_failed():
+    with MLPool(
+        models_to_load={
+            "return_kwargs_model": partial(load_good_model_two, "filepath_2")
+        },
+        nb_workers=1,
+    ) as pool:
+        _ = pool.create_job(faulty_score_model, "return_kwargs_model")
+        time.sleep(0.2)
+        with pytest.raises(MLWorkerFailedBecauseOfUserProvidedCodeError):
+            pool.create_job(score_model, "return_kwargs_model")
