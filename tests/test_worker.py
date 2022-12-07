@@ -10,16 +10,22 @@ from ml_pool.messages import JobMessage
 from ml_pool.config import Config
 
 
+@pytest.fixture(scope="session")
+def mp_context():
+    context = multiprocessing.get_context(Config.DEFAULT_START_METHOD)
+    return context
+
+
 @pytest.fixture(scope="function")
-def manager():
-    manager = multiprocessing.Manager()
+def manager(mp_context):
+    manager = mp_context.Manager()
     yield manager
     manager.shutdown()
 
 
 @pytest.fixture(scope="function")
-def queue():
-    return multiprocessing.Queue()
+def queue(mp_context):
+    return mp_context.Queue()
 
 
 @pytest.fixture(scope="function")
@@ -30,6 +36,9 @@ def result_dict(manager):
 @pytest.fixture(scope="function")
 def cancel_dict(manager):
     return manager.dict()
+
+
+# ----------------------------- fake user code --------------------------------
 
 
 class Model:

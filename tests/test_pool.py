@@ -16,6 +16,8 @@ from ml_pool.config import Config
 
 
 # ---------------------------------- models ----------------------------------
+
+
 class GoodModel1:
     def __init__(self, name: str, filepath: str):
         self.name = name
