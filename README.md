@@ -199,7 +199,6 @@ if __name__ == "__main__":
 
 ```
 
-
 ---
 
 ### Gotchas:
@@ -215,11 +214,7 @@ gunicorn etc. Be careful when using MLPool in such configuration as you could ov
 Cloud Run to scale up lol. In our case each container runs only a single instance of the API app, spinning up more instances
 within the same container won't help as the bottleneck is CPU hungry model scoring.
 
-
 ---
-
-
-
 
 ### Known issues:
 
@@ -227,23 +222,16 @@ within the same container won't help as the bottleneck is CPU hungry model scori
 
 - Worker monitoring threads run too rarely, it is possible to create a new job after workers have already failed (the window is ~0.2 sec)
 
+- DO NOT terminate workers, might corrupt the queue and shared dict (dies with locks acquired), 
+try stopping gracefully, doesnt join within timeout, terminate
 
 ---
 
-
 ### TODO:
-
-
-- DO NOT terminate workers, might corrupt the queue and shared dict (dies with locks acquired), try stopping gracefully, doesnt join within timeout, terminate
-
-- Release as a package
-
-- Test with proper model (YOLO or something) - fix loading Torch model
-
-- Test the pool with async code (use the flags block_until_scheduled AND wait_if_unavailable)
 
 - Test with your WS project
 
+- Test with proper CPU hungry model
 
 ---
 

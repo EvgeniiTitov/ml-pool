@@ -13,3 +13,15 @@ pc:
 
 test:
 	pytest tests -v
+
+
+create-package:
+	python setup.py sdist bdist_wheel
+
+
+install-twine:
+	pip install twine
+
+
+twine-upload:
+	twine upload dist/*

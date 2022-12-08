@@ -2,7 +2,7 @@ import multiprocessing
 
 
 class Config:
-    LOGGER_VERBOSE = True
+    LOGGER_VERBOSE = False
     LOGGER_FORMAT = (
         "%(asctime)s %(name)s %(process)d %(levelname)s "
         "%(lineno)s: %(message)s"
