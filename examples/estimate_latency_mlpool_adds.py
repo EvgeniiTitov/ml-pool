@@ -25,7 +25,7 @@ All of these ^ takes time, but how much?
 """
 
 
-NB_SCORES = 100
+NB_SCORES = 1000
 
 
 def load_iris(model_path: str) -> HungryIris:
@@ -77,7 +77,7 @@ if __name__ == "__main__":
         models_to_load={"iris": partial(load_iris, "./models/iris_xgb.json")},
         nb_workers=1,
     ) as pool:
-        score_on_pool()
         asyncio.run(score_on_pool_async())
+        score_on_pool()
 
     score_directly()

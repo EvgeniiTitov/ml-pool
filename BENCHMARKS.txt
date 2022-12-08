@@ -1,18 +1,21 @@
 Test 1:
 
-20 clients, 10 request / client, HungryIris (1 sec burning)
+20 clients, 10 request / client, HungryIris (1 sec CPU burning)
 
 ML_POOL: 2 workers - 116 sec
 ML_POOL: 4 workers - 74 sec
 ML_POOL: 6 workers - 70 sec
 ML_POOL: 11 workers - 50 sec
+
 SYNC: 222 sec
 
+
+                                MLPool overhead
 
 ------------------------------------------------------------------------------
 How much latency MLPool introduces? (examples/estimate_latency_mlpool_adds.py)
 
-Scoring CPU intensive model 100 times synchronously (1 job at a time)
+Scoring CPU intensive model (1 sec scoring time) 100 times synchronously (1 job at a time)
 
 Direct scoring: 110 sec
 Scoring on the pool (1 worker): 103 sec
@@ -20,3 +23,14 @@ Scoring on the pool asyncio (1 worker): 109 sec  # Just making sure it matches
 
 The MLPool logic doesn't seem to introduce any overhead, it even seems to speed
 things up slightly (interesting)
+
+
+------------------------------------------------------------------------------
+Scoring NOT CPU intensive model (ms scoring) 1000 times synchronously (1 job at a time)
+
+Direct scoring: 0.33 sec
+Scoring on the pool (1 worker): 12 sec
+Scoring on the pool asyncio (1 worker): 6 sec (interesting, why?)
+
+If a model takes ms to score, DO NOT use MLPool. All associated overhead will
+only slow things down.

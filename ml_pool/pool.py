@@ -67,7 +67,7 @@ class MLPool:
         self._workers_exit_code = None
 
         self._pool_running = True
-        time.sleep(1.0)  # Time to spin up workers, load the models etc
+        time.sleep(5.0)  # Time to spin up workers, load the models etc
         logger.info(f"MLPool initialised. {nb_workers} workers spun up")
 
     # ---------------------------- Public methods ----------------------------
