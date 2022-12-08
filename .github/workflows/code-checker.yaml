@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 jobs:
 
-  Test-Linux:
+  test-linux:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -23,7 +23,7 @@ jobs:
       - name: Run tests
         run: make test
 
-  Test-Windows:
+  test-windows:
     runs-on: windows-latest
     strategy:
       matrix:
@@ -41,6 +41,26 @@ jobs:
           pip install -r requirements-dev.txt
       - name: Run tests
         run: make test
+
+  test-macOS:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        python-version: [ "3.9" ]
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Run tests
+        run: make test
+
 
   Run-Linters:
     runs-on: ubuntu-latest
