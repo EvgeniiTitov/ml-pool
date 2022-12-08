@@ -16,6 +16,7 @@ Scoring CPU intensive model 100 times synchronously (1 job at a time)
 
 Direct scoring: 110 sec
 Scoring on the pool (1 worker): 103 sec
+Scoring on the pool asyncio (1 worker): 109 sec  # Just making sure it matches
 
 The MLPool logic doesn't seem to introduce any overhead, it even seems to speed
 things up slightly (interesting)
