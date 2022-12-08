@@ -10,3 +10,12 @@ SYNC: 222 sec
 
 
 ------------------------------------------------------------------------------
+How much latency MLPool introduces? (examples/estimate_latency_mlpool_adds.py)
+
+Scoring CPU intensive model 100 times synchronously (1 job at a time)
+
+Direct scoring: 110 sec
+Scoring on the pool (1 worker): 103 sec
+
+The MLPool logic doesn't seem to introduce any overhead, it even seems to speed
+things up slightly (interesting)

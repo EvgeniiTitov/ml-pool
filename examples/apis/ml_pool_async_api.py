@@ -1,4 +1,5 @@
 import sys
+from functools import partial
 
 sys.path.append("../..")
 
@@ -17,19 +18,27 @@ app = FastAPI()
 
 
 # --------------------- functions a user to provide --------------------------
-def load_iris() -> HungryIris:
-    return HungryIris("../models/iris_xgb.json")
+def load_iris(model_path: str) -> HungryIris:
+    # TODO: Loading and preparing ML model goes here
+
+    return HungryIris(model_path)
 
 
 def score_iris(model: HungryIris, features):
+    # TODO: Feature engineering etc goes here
+
     return model.predict(features)
 
 
-def load_diabetes_classifier() -> HungryDiabetesClassifier:
-    return HungryDiabetesClassifier("../models/diabetes_xgb.json")
+def load_diabetes_classifier(model_path: str) -> HungryDiabetesClassifier:
+    # TODO: Loading and preparing ML model goes here
+
+    return HungryDiabetesClassifier(model_path)
 
 
 def score_diabetes_classifier(model: HungryDiabetesClassifier, features):
+    # TODO: Feature engineering etc goes here
+
     return model.predict(features)
 
 
@@ -76,8 +85,10 @@ async def serve_diabetes_classifier(request: Request) -> Response:
 if __name__ == "__main__":
     with MLPool(
         models_to_load={
-            "iris": load_iris,
-            "diabetes_classifier": load_diabetes_classifier,
+            "iris": partial(load_iris, "../models/iris_xgb.json"),
+            "diabetes_classifier": partial(
+                load_diabetes_classifier, "../models/diabetes_xgb.json"
+            ),
         },
         nb_workers=5,
     ) as pool:
